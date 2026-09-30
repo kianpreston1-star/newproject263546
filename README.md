@@ -7,8 +7,10 @@ A free AI chat app that runs in the cloud. It can **search the web, read web pag
 Open a terminal (**Ctrl+Alt+T**), paste this line and press Enter:
 
 ```bash
-wget -nv -O /tmp/install-cloud-ai.sh https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh && bash /tmp/install-cloud-ai.sh
+python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh', '/tmp/install-cloud-ai.sh')" && bash /tmp/install-cloud-ai.sh
 ```
+
+This uses Python, which every Ubuntu desktop includes, because newer Ubuntu releases no longer ship `wget` by default. The installer shows a ✔ for each step and checks that the app actually starts.
 
 Cloud AI opens as soon as the install finishes. After that, open it in any of these ways:
 
@@ -20,7 +22,7 @@ Cloud AI opens as soon as the install finishes. After that, open it in any of th
 - **Light on an older laptop.** The server only hands out a few static files, so it uses a few MB of RAM and no CPU while idle. It listens only on `127.0.0.1`, so nothing outside your computer can reach it.
 - **Browser choice.** If Chrome, Chromium, Brave or Edge is installed, the app opens in its own window. Otherwise it opens in Firefox. If Firefox is already open and no Chrome-family browser is running, it reuses Firefox instead of starting a second browser, which saves memory.
 - **Update:** run the same command again.
-- **If nothing seems to happen:** the command above prints an error if the download fails. Copy what the terminal shows and ask for help.
+- **If something goes wrong:** the installer marks the failed step with a ✘. Copy what the terminal shows and ask for help. `~/.local/share/cloud-ai/cloud-ai --check` re-runs the check at any time.
 - **Stop the background server:** `~/.local/share/cloud-ai/cloud-ai --stop`
 - **Uninstall:** `bash ~/.local/share/cloud-ai/install-ubuntu.sh --uninstall`
 

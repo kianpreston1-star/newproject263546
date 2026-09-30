@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Opens Cloud AI. Starts the tiny local web server first if it isn't already running.
-#   cloud-ai          open the app
-#   cloud-ai --stop   stop the background server
+#   cloud-ai           open the app
+#   cloud-ai --check   start the server if needed and report whether everything works
+#   cloud-ai --stop    stop the background server
 set -u
 
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -19,43 +20,62 @@ server_up() {
   [[ "$reply" == *'"Cloud AI"'* ]]
 }
 
-if [[ "${1:-}" == "--stop" ]]; then
-  pkill -f "^python3 $HERE/serve.py" && echo "Cloud AI server stopped." || echo "Cloud AI server wasn't running."
-  exit 0
-fi
-
-if ! server_up; then
-  nohup python3 "$HERE/serve.py" "$PORT" >/dev/null 2>&1 &
+start_server() {
+  server_up && return 0
+  # Any crash message lands in server.log, which helps if something goes wrong.
+  nohup python3 "$HERE/serve.py" "$PORT" >"$HERE/server.log" 2>&1 &
   for _ in $(seq 1 40); do
-    server_up && break
+    server_up && return 0
     sleep 0.25
   done
-  if ! server_up; then
-    msg="Cloud AI couldn't start its local server on port $PORT. Another program may be using that port."
-    notify-send "Cloud AI" "$msg" 2>/dev/null || echo "$msg" >&2
-    exit 1
-  fi
-fi
+  return 1
+}
 
-chrome=""
-for b in google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge; do
-  if command -v "$b" >/dev/null 2>&1; then chrome="$b"; break; fi
-done
-
+# Sets BROWSER_CMD to the command that opens the app.
 # With 8 GB of RAM, reuse a browser that's already open rather than starting a second one:
 # Firefox if it's running and no Chrome-family browser is, otherwise a Chrome-family browser, which can
 # show the app in its own window.
-firefox_running=false
-chrome_running=false
-if pgrep -x firefox >/dev/null 2>&1; then firefox_running=true; fi
-if pgrep -x chrome >/dev/null 2>&1 || pgrep -x brave >/dev/null 2>&1 || pgrep -x msedge >/dev/null 2>&1; then
-  chrome_running=true
-fi
+pick_browser() {
+  local chrome="" b firefox_running=false chrome_running=false
+  for b in google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge; do
+    if command -v "$b" >/dev/null 2>&1; then chrome="$b"; break; fi
+  done
+  if pgrep -x firefox >/dev/null 2>&1; then firefox_running=true; fi
+  if pgrep -x chrome >/dev/null 2>&1 || pgrep -x brave >/dev/null 2>&1 || pgrep -x msedge >/dev/null 2>&1; then
+    chrome_running=true
+  fi
+  if [[ -n "$chrome" ]] && { $chrome_running || ! $firefox_running; }; then
+    BROWSER_CMD=("$chrome" --app="$URL" --start-maximized)
+  elif command -v firefox >/dev/null 2>&1; then
+    BROWSER_CMD=(firefox --new-window "$URL")
+  else
+    BROWSER_CMD=(xdg-open "$URL")
+  fi
+}
 
-if [[ -n "$chrome" ]] && { $chrome_running || ! $firefox_running; }; then
-  exec "$chrome" --app="$URL" --start-maximized
-elif command -v firefox >/dev/null 2>&1; then
-  exec firefox --new-window "$URL"
-else
-  exec xdg-open "$URL"
+case "${1:-}" in
+  --stop)
+    pkill -f "^python3 $HERE/serve.py" && echo "Cloud AI server stopped." || echo "Cloud AI server wasn't running."
+    exit 0
+    ;;
+  --check)
+    if start_server; then
+      echo "✔ Cloud AI's local server is running at $URL"
+    else
+      echo "✘ Cloud AI's local server didn't start on port $PORT."
+      [[ -s "$HERE/server.log" ]] && sed 's/^/    /' "$HERE/server.log"
+      exit 1
+    fi
+    pick_browser
+    echo "✔ It will open with: ${BROWSER_CMD[0]}"
+    exit 0
+    ;;
+esac
+
+if ! start_server; then
+  msg="Cloud AI couldn't start its local server on port $PORT. Run \"$HERE/cloud-ai --check\" in a terminal for details."
+  notify-send "Cloud AI" "$msg" 2>/dev/null || echo "$msg" >&2
+  exit 1
 fi
+pick_browser
+exec "${BROWSER_CMD[@]}"

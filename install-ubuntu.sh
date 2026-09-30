@@ -3,7 +3,7 @@
 # It copies the app to ~/.local/share/cloud-ai and adds a "Cloud AI" icon to the desktop and the
 # app list. Clicking the icon starts a tiny local web server and opens the app in your browser.
 #
-#   Install or update:  wget -qO- https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh | bash
+#   Install or update:  wget -nv -O /tmp/install-cloud-ai.sh https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh && bash /tmp/install-cloud-ai.sh
 #   Uninstall:          bash ~/.local/share/cloud-ai/install-ubuntu.sh --uninstall
 set -euo pipefail
 
@@ -16,8 +16,25 @@ DESKTOP_FILE="$DESKTOP_DIR/cloud-ai.desktop"
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 
+# Adds or removes Cloud AI in the Ubuntu Dock (GNOME's favourite apps).
+dock() {
+  command -v gsettings >/dev/null 2>&1 || return 0
+  local favs new
+  favs="$(gsettings get org.gnome.shell favorite-apps 2>/dev/null)" || return 0
+  if [[ "$1" == add ]]; then
+    [[ "$favs" == *"'cloud-ai.desktop'"* ]] && return 0
+    if [[ "$favs" == "@as []" || "$favs" == "[]" ]]; then new="['cloud-ai.desktop']"; else new="${favs%]}, 'cloud-ai.desktop']"; fi
+  else
+    [[ "$favs" == *"'cloud-ai.desktop'"* ]] || return 0
+    new="$(printf '%s' "$favs" | sed -e "s/, 'cloud-ai.desktop'//" -e "s/'cloud-ai.desktop', //" -e "s/'cloud-ai.desktop'//")"
+    [[ "$new" == "[]" ]] && new="@as []"
+  fi
+  gsettings set org.gnome.shell favorite-apps "$new" 2>/dev/null || true
+}
+
 if [[ "${1:-}" == "--uninstall" ]]; then
-  pkill -f "$DEST/serve.py" 2>/dev/null || true
+  pkill -f "^python3 $DEST/serve.py" 2>/dev/null || true
+  dock remove
   rm -rf "$DEST"
   rm -f "$MENU_FILE" "$DESKTOP_FILE"
   say "Cloud AI has been removed."
@@ -51,7 +68,7 @@ else
 fi
 
 say "Installing to $DEST…"
-pkill -f "$DEST/serve.py" 2>/dev/null || true # restarted on next launch, serving the new files
+pkill -f "^python3 $DEST/serve.py" 2>/dev/null || true # restarted on next launch, serving the new files
 rm -rf "$DEST/app"
 mkdir -p "$DEST/app"
 cp -r "$SRC/index.html" "$SRC/manifest.webmanifest" "$SRC/icons" "$SRC/vendor" "$DEST/app/"
@@ -67,7 +84,7 @@ Comment=Free AI chat that runs in the cloud
 Exec="$DEST/cloud-ai"
 Icon=$DEST/app/icons/icon-512.png
 Terminal=false
-Categories=Network;Chat;Utility;
+Categories=Network;Chat;
 Keywords=AI;chat;assistant;
 StartupNotify=true
 EOF
@@ -83,11 +100,25 @@ if [[ -d "$DESKTOP_DIR" ]]; then
   on_desktop=true
 fi
 
+dock add
+
 echo
+say "Done! Cloud AI is installed."
+echo "You can open it any of these ways:"
+echo "  • Click the blue cloud icon in the dock (the bar on the left of your screen)."
+echo "  • Press the Super (Windows) key, type “Cloud AI” and press Enter."
 if $on_desktop; then
-  say "Done! Double-click “Cloud AI” on your desktop, or find it in your app list."
-  echo "If the desktop icon says it isn't allowed to launch, right-click it and choose “Allow Launching”."
-else
-  say "Done! Open “Cloud AI” from your app list."
+  echo "  • Double-click “Cloud AI” on your desktop (press Super+D to hide windows and see it)."
+  echo "    If it says it isn't allowed to launch, right-click it and choose “Allow Launching”."
 fi
+echo "  • Or run: $DEST/cloud-ai"
+echo
 echo "To uninstall later: bash $DEST/install-ubuntu.sh --uninstall"
+
+# Open it now so there's nothing to hunt for.
+if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" && -z "${CLOUD_AI_NO_LAUNCH:-}" ]]; then
+  echo
+  say "Opening Cloud AI…"
+  nohup "$DEST/cloud-ai" >/dev/null 2>&1 &
+  disown || true
+fi

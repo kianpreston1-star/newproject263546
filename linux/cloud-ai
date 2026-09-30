@@ -20,7 +20,7 @@ server_up() {
 }
 
 if [[ "${1:-}" == "--stop" ]]; then
-  pkill -f "$HERE/serve.py" && echo "Cloud AI server stopped." || echo "Cloud AI server wasn't running."
+  pkill -f "^python3 $HERE/serve.py" && echo "Cloud AI server stopped." || echo "Cloud AI server wasn't running."
   exit 0
 fi
 

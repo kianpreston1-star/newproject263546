@@ -7,15 +7,20 @@ A free AI chat app that runs in the cloud. It can **search the web, read web pag
 Open a terminal (**Ctrl+Alt+T**), paste this line and press Enter:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh | bash
+wget -nv -O /tmp/install-cloud-ai.sh https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh && bash /tmp/install-cloud-ai.sh
 ```
 
-A **Cloud AI** icon then appears on your desktop and in your app list. Double-click it to start. If Ubuntu says the desktop icon isn't allowed to launch, right-click it and choose **Allow Launching**. You can also right-click the app in the dock and pin it.
+Cloud AI opens as soon as the install finishes. After that, open it in any of these ways:
+
+- **Dock:** click the blue cloud icon in the dock (the bar on the left of the screen).
+- **Search:** press the Super (Windows) key, type **Cloud AI** and press Enter.
+- **Desktop:** double-click the **Cloud AI** icon on the desktop. Press Super+D to hide windows and see it. If Ubuntu says it isn't allowed to launch, right-click it and choose **Allow Launching**.
 
 - **No sudo, no GitHub setup.** The installer copies the app to `~/.local/share/cloud-ai`. The icon starts a tiny local web server, which Puter.js needs because it won't run from a plain file, and opens the app.
 - **Light on an older laptop.** The server only hands out a few static files, so it uses a few MB of RAM and no CPU while idle. It listens only on `127.0.0.1`, so nothing outside your computer can reach it.
 - **Browser choice.** If Chrome, Chromium, Brave or Edge is installed, the app opens in its own window. Otherwise it opens in Firefox. If Firefox is already open and no Chrome-family browser is running, it reuses Firefox instead of starting a second browser, which saves memory.
 - **Update:** run the same command again.
+- **If nothing seems to happen:** the command above prints an error if the download fails. Copy what the terminal shows and ask for help.
 - **Stop the background server:** `~/.local/share/cloud-ai/cloud-ai --stop`
 - **Uninstall:** `bash ~/.local/share/cloud-ai/install-ubuntu.sh --uninstall`
 

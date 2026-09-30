@@ -1,0 +1,40 @@
+# tradebot settings. Anything you leave out uses the default shown in tradebot/config.py.
+# After changing strategy or risk settings, run `tradebot backtest` and `tradebot walkforward`
+# to see what the change does before trading real money with it.
+
+# "paper" = real prices, pretend money (nothing touches the blockchain).
+# "live"  = real trades from the bot's own wallet. Create it with `tradebot new-wallet` first.
+mode = "paper"
+
+[market]
+signal_symbol = "BNBUSDT"   # Binance price feed that drives the signals; must match the traded coin
+interval = "1h"
+
+[risk]
+max_exposure = 0.9          # never more than 90% of the account in the coin
+max_drawdown = 0.40         # kill switch: sell everything and stop at a 40% loss from the peak
+daily_loss_limit = 0.05     # after a 5% loss in one (UTC) day, only sell until tomorrow
+max_slippage_bps = 50       # a swap reverts on-chain rather than fill more than 0.5% worse than quoted
+max_price_deviation = 0.02  # skip trades when the DEX price is >2% off the market price
+min_trade_usd = 10
+max_trades_per_day = 12
+
+[chain]
+rpc_url = "https://bsc-dataseed.bnbchain.org"
+# send_rpc_url = ""         # optional MEV-protected RPC, used only for sending transactions
+max_gas_gwei = 3.0
+min_gas_bnb = 0.002
+
+# To trade BTC instead of BNB, set signal_symbol = "BTCUSDT" above and:
+# asset_token = "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c"   # BTCB
+# For ETH: signal_symbol = "ETHUSDT" and
+# asset_token = "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"   # ETH (BEP20)
+
+[paper]
+starting_cash = 1000.0
+
+[notify]
+# Optional phone alerts. Make a bot with @BotFather in Telegram, then put its token and your chat id here
+# (or in the TRADEBOT_TELEGRAM_TOKEN and TRADEBOT_TELEGRAM_CHAT environment variables).
+telegram_bot_token = ""
+telegram_chat_id = ""

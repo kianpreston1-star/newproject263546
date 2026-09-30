@@ -2,7 +2,22 @@
 
 A free AI chat app that runs in the cloud. It can **search the web, read web pages, run code, create images and save files**. You don't need API keys or a powerful computer. Your browser only displays the page, and the AI runs on [Puter](https://puter.com)'s servers.
 
-**Live app:** https://kianpreston1-star.github.io/newproject263546/ (this works once GitHub Pages is turned on; see below).
+## Install on Ubuntu (one command)
+
+Open a terminal (**Ctrl+Alt+T**), paste this line and press Enter:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh | bash
+```
+
+A **Cloud AI** icon then appears on your desktop and in your app list. Double-click it to start. If Ubuntu says the desktop icon isn't allowed to launch, right-click it and choose **Allow Launching**. You can also right-click the app in the dock and pin it.
+
+- **No sudo, no GitHub setup.** The installer copies the app to `~/.local/share/cloud-ai`. The icon starts a tiny local web server, which Puter.js needs because it won't run from a plain file, and opens the app.
+- **Light on an older laptop.** The server only hands out a few static files, so it uses a few MB of RAM and no CPU while idle. It listens only on `127.0.0.1`, so nothing outside your computer can reach it.
+- **Browser choice.** If Chrome, Chromium, Brave or Edge is installed, the app opens in its own window. Otherwise it opens in Firefox. If Firefox is already open and no Chrome-family browser is running, it reuses Firefox instead of starting a second browser, which saves memory.
+- **Update:** run the same command again.
+- **Stop the background server:** `~/.local/share/cloud-ai/cloud-ai --stop`
+- **Uninstall:** `bash ~/.local/share/cloud-ai/install-ubuntu.sh --uninstall`
 
 ## How it's free
 
@@ -24,16 +39,16 @@ The app uses [Puter.js](https://docs.puter.com), which gives websites access to 
 
 You can turn each tool on or off in **Settings** (the gear icon). You can also add custom instructions and change the tool-step limit there.
 
-## Put it online (one-time, about 1 minute)
+## Optional: put it online for other devices
 
-Puter.js has to be served from a website. Opening `index.html` straight from your computer won't work. GitHub Pages hosts it for free:
+To use it on a phone or another computer as well, host it for free on GitHub Pages. Puter.js has to be served from a website, so opening `index.html` as a file won't work. The online copy is separate from the one installed on Ubuntu: each keeps its own chats and its own Puter guest account.
 
 1. On GitHub, open this repository and go to **Settings → Pages**.
 2. Under **Build and deployment**, set **Source** to **Deploy from a branch**.
 3. Pick the branch that holds this code (`claude/determined-bardeen-vvrlm3`, or `main` after it has been merged) and the **/ (root)** folder, then click **Save**.
 4. Wait about a minute. The app will then be live at https://kianpreston1-star.github.io/newproject263546/.
 
-## Add it to your desktop
+### Add the online version to a Windows or Mac desktop
 
 **Install it as an app (recommended).** Open the live link in **Chrome** or **Edge**, then click the install icon at the right end of the address bar. You can also open the ⋮ menu and choose **Cast, save and share → Install page as app** in Chrome, or **Apps → Install this site as an app** in Edge. It then opens in its own window and gets a desktop icon. If you're asked whether to create a desktop shortcut, say yes.
 
@@ -44,6 +59,18 @@ Puter.js has to be served from a website. Opening `index.html` straight from you
 - `index.html`: the whole app (HTML, CSS and JavaScript in one file).
 - `manifest.webmanifest` and `icons/`: let browsers install the app with an icon.
 - `vendor/`: bundled copies of [marked](https://github.com/markedjs/marked) (Markdown) and [DOMPurify](https://github.com/cure53/DOMPurify) (HTML sanitizing).
-- `desktop-shortcut/`: desktop shortcut files for Windows and Mac.
+- `install-ubuntu.sh`: the Ubuntu installer and uninstaller.
+- `linux/`: the launcher and the tiny local web server that the Ubuntu installer sets up.
+- `desktop-shortcut/`: shortcut files for the online version on Windows and Mac.
+
+## Made for older laptops
+
+The app is written to stay light on modest hardware. It was tuned for a 2-core Intel i5 with 8 GB of RAM, a spinning hard drive and a 1366×768 screen:
+
+- All the AI work happens in Puter's cloud. Your computer only shows the page.
+- Chat history is saved in batches instead of after every step, which avoids constant small writes to a hard drive.
+- Messages that are already on screen aren't re-processed when a new one arrives, so long chats stay smooth.
+- Tool output from earlier turns is shortened, and very old turns are dropped from long chats before they're sent. Smaller requests mean faster answers, and less of your allowance used on paid models.
+- The layout fits a 1366×768 screen, including inside a browser tab.
 
 Chats are saved in your browser's local storage on your own computer.

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Opens Cloud AI. Starts the tiny local web server first if it isn't already running.
+#   cloud-ai          open the app
+#   cloud-ai --stop   stop the background server
+set -u
+
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PORT="${CLOUD_AI_PORT:-8723}"
+URL="http://127.0.0.1:$PORT/"
+
+# Asks the server for the app manifest using bash's built-in networking (no extra programs to load
+# from disk, which keeps startup quick on a hard drive).
+server_up() {
+  local reply
+  { exec 3<>"/dev/tcp/127.0.0.1/$PORT"; } 2>/dev/null || return 1
+  printf 'GET /manifest.webmanifest HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' >&3
+  reply="$(timeout 2 cat <&3 2>/dev/null)"
+  exec 3<&- 3>&-
+  [[ "$reply" == *'"Cloud AI"'* ]]
+}
+
+if [[ "${1:-}" == "--stop" ]]; then
+  pkill -f "$HERE/serve.py" && echo "Cloud AI server stopped." || echo "Cloud AI server wasn't running."
+  exit 0
+fi
+
+if ! server_up; then
+  nohup python3 "$HERE/serve.py" "$PORT" >/dev/null 2>&1 &
+  for _ in $(seq 1 40); do
+    server_up && break
+    sleep 0.25
+  done
+  if ! server_up; then
+    msg="Cloud AI couldn't start its local server on port $PORT. Another program may be using that port."
+    notify-send "Cloud AI" "$msg" 2>/dev/null || echo "$msg" >&2
+    exit 1
+  fi
+fi
+
+chrome=""
+for b in google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge; do
+  if command -v "$b" >/dev/null 2>&1; then chrome="$b"; break; fi
+done
+
+# With 8 GB of RAM, reuse a browser that's already open rather than starting a second one:
+# Firefox if it's running and no Chrome-family browser is, otherwise a Chrome-family browser, which can
+# show the app in its own window.
+firefox_running=false
+chrome_running=false
+if pgrep -x firefox >/dev/null 2>&1; then firefox_running=true; fi
+if pgrep -x chrome >/dev/null 2>&1 || pgrep -x brave >/dev/null 2>&1 || pgrep -x msedge >/dev/null 2>&1; then
+  chrome_running=true
+fi
+
+if [[ -n "$chrome" ]] && { $chrome_running || ! $firefox_running; }; then
+  exec "$chrome" --app="$URL" --start-maximized
+elif command -v firefox >/dev/null 2>&1; then
+  exec firefox --new-window "$URL"
+else
+  exec xdg-open "$URL"
+fi

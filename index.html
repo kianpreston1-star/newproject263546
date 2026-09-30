@@ -130,7 +130,7 @@ button { cursor: pointer; }
   padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
 }
 
-.messages { flex: 1; overflow-y: auto; min-height: 0; scroll-behavior: smooth; }
+.messages { flex: 1; overflow-y: auto; min-height: 0; }
 .thread { max-width: 780px; margin: 0 auto; padding: 24px 16px 32px; display: grid; gap: 18px; }
 .msg { min-width: 0; }
 .msg.user { justify-self: end; max-width: min(85%, 640px); }
@@ -277,6 +277,15 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
   .empty { padding-top: 4vh; }
   .empty h1 { font-size: 23px; }
 }
+/* Short laptop screens (e.g. 1366×768 with browser toolbars) */
+@media (max-height: 760px) and (min-width: 761px) {
+  .thread { padding-top: 16px; }
+  .empty { padding-top: 3vh; gap: 10px; }
+  .empty h1 { font-size: 24px; }
+  .chips { gap: 6px; }
+  .chip { padding: 5px 12px; }
+  .composer-wrap { padding-bottom: 10px; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition: none !important; scroll-behavior: auto !important; }
 }
@@ -413,7 +422,22 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
 
   let state = load();
 
+  // Saves are batched: rewriting the whole history on every step is slow on a spinning hard drive.
+  let saveTimer = null;
   function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 600);
+  }
+  function flushSave() {
+    if (saveTimer === null) return;
+    clearTimeout(saveTimer);
+    saveNow();
+  }
+  addEventListener('pagehide', flushSave);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
+
+  function saveNow() {
+    saveTimer = null;
     const write = () => localStorage.setItem(STORE_KEY, JSON.stringify(state));
     try {
       write();
@@ -495,12 +519,24 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
 
   const parseHTML = (html) => new DOMParser().parseFromString(html, 'text/html');
 
+  // puter.net.fetch doesn't follow redirects, so do it here (http→https, example.com→www., etc.).
   async function netText(url, init) {
-    const res = await puter.net.fetch(url, init);
-    const text = await res.text();
-    let type = '';
-    try { type = res.headers.get('content-type') || ''; } catch { /* no headers */ }
-    return { status: res.status, text, type };
+    let current = url;
+    for (let hop = 0; hop <= 5; hop++) {
+      const res = await puter.net.fetch(current, init);
+      let location = null;
+      try { location = res.headers.get('location'); } catch { /* no headers */ }
+      if ([301, 302, 303, 307, 308].includes(res.status) && location) {
+        try { res.body && res.body.cancel(); } catch { /* ignore */ }
+        current = new URL(location, current).href;
+        continue;
+      }
+      const text = await res.text();
+      let type = '';
+      try { type = res.headers.get('content-type') || ''; } catch { /* no headers */ }
+      return { status: res.status, text, type, url: current };
+    }
+    throw new Error('too many redirects');
   }
 
   function ddgTarget(href) {
@@ -618,13 +654,13 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
     if (!url) throw new Error('url is required');
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
     const max = clamp(parseInt(max_chars, 10) || 12000, 500, 40000);
-    const { status, text, type } = await netText(url);
+    const { status, text, type, url: finalUrl } = await netText(url);
     let body = text;
     let title = '';
     if (/html/i.test(type) || /^\s*<(!doctype|html|head|body)/i.test(text)) {
-      ({ title, text: body } = htmlToText(text, url, include_links));
+      ({ title, text: body } = htmlToText(text, finalUrl, include_links));
     }
-    return `URL: ${url}\nHTTP status: ${status}${title ? `\nTitle: ${title}` : ''}\n\n${truncate(body, max)}`;
+    return `URL: ${finalUrl}\nHTTP status: ${status}${title ? `\nTitle: ${title}` : ''}\n\n${truncate(body, max)}`;
   }
 
   // Runs code in a throwaway Web Worker: no access to this page, the chat or the Puter account.
@@ -851,6 +887,22 @@ Current date and time: ${new Date().toString()}.
         }
       }
     }
+
+    // Keep requests small so answers come back faster: shorten tool output from earlier turns,
+    // and drop the oldest turns once a conversation gets very long.
+    const lastUser = out.map((m) => m.role).lastIndexOf('user');
+    for (let i = 1; i < lastUser; i++) {
+      const m = out[i];
+      if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 1500) {
+        out[i] = { ...m, content: m.content.slice(0, 1500) + '\n[…shortened: older tool output]' };
+      }
+    }
+    const size = () => out.reduce((n, m) => n + JSON.stringify(m).length, 0);
+    while (size() > 120000) {
+      const next = out.findIndex((m, i) => i > 1 && m.role === 'user');
+      if (next === -1) break;
+      out.splice(1, next - 1);
+    }
     return out;
   }
 
@@ -1014,6 +1066,17 @@ Current date and time: ${new Date().toString()}.
     return box;
   }
 
+  // Re-rendering reuses each message's Markdown instead of parsing it again, which keeps long
+  // chats responsive on slower computers.
+  const mdCache = new WeakMap();
+  function cachedMarkdown(m, text) {
+    const hit = mdCache.get(m);
+    if (hit && hit.text === text) return hit.node;
+    const node = markdown(text);
+    mdCache.set(m, { text, node });
+    return node;
+  }
+
   const safeImageSrc = (src) => typeof src === 'string' && /^(https:|data:image\/|blob:)/.test(src);
 
   function toolCard(call, result) {
@@ -1079,7 +1142,7 @@ Current date and time: ${new Date().toString()}.
       box.append(r);
     }
     const text = textOf(m.content);
-    if (text.trim()) box.append(markdown(text));
+    if (text.trim()) box.append(cachedMarkdown(m, text));
     for (const im of m.images || []) {
       const src = im && im.image_url && im.image_url.url;
       if (safeImageSrc(src)) { const img = el('img', 'gen-image'); img.src = src; img.alt = 'Generated image'; box.append(img); }

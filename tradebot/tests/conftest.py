@@ -3,6 +3,17 @@ import pandas as pd
 import pytest
 
 
+class FakeMarket:
+    """Serves candles whose last one closed a moment ago, like the live feed."""
+
+    def __init__(self, df: pd.DataFrame, age_hours: float = 0.1):
+        end = pd.Timestamp.now(tz="UTC").floor("h") - pd.Timedelta(hours=1) - pd.Timedelta(hours=age_hours).floor("h")
+        self.df = df.set_axis(pd.date_range(end=end, periods=len(df), freq="h", tz="UTC", name="time"))
+
+    def recent(self, symbol, interval, bars):
+        return self.df.iloc[-bars:]
+
+
 def make_candles(returns: np.ndarray, start_price: float = 100.0, seed: int = 0) -> pd.DataFrame:
     """Hourly candles following the given per-bar log returns, with a little intrabar noise."""
     rng = np.random.default_rng(seed)

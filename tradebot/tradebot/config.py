@@ -1,6 +1,7 @@
 """Settings. Every value has a safe default here; ~/.tradebot/config.toml overrides any of them."""
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
@@ -13,6 +14,8 @@ except ModuleNotFoundError:  # Python 3.10
 # BNB Chain (BSC) mainnet contracts, each checked on-chain.
 USDT = "0x55d398326f99059fF775485246999027B3197955"
 WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+BTCB = "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c"
+ETH_BEP20 = "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"
 PANCAKE_V2_ROUTER = "0x10ED43C718714eb63d5aA57B78B54704E256024E"
 PANCAKE_V3_ROUTER = "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4"  # SmartRouter
 PANCAKE_V3_QUOTER = "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997"  # QuoterV2
@@ -159,3 +162,38 @@ def load_config(path: str | Path | None = None) -> Config:
     cfg.notify.telegram_chat_id = os.environ.get("TRADEBOT_TELEGRAM_CHAT", cfg.notify.telegram_chat_id)
     cfg.validate()
     return cfg
+
+
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value)  # JSON string escapes are valid TOML basic strings
+    if isinstance(value, (tuple, list)):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    raise TypeError(f"Can't save {value!r} in the config file")
+
+
+def save_config(cfg: Config, path: str | Path | None = None) -> Path:
+    """Writes the settings that differ from the defaults (plus the mode), so future default improvements apply."""
+    cfg.validate()
+    path = Path(path) if path else home_dir() / "config.toml"
+    default = Config()
+    lines = ["# tradebot settings, saved by the tradebot app. Anything not listed uses the default in config.py.",
+             f"mode = {_toml_value(cfg.mode)}"]
+    for section in fields(cfg):
+        if section.name == "mode":
+            continue
+        current, base = getattr(cfg, section.name), getattr(default, section.name)
+        changed = [(f.name, getattr(current, f.name)) for f in fields(current)
+                   if getattr(current, f.name) != getattr(base, f.name)]
+        if changed:
+            lines += ["", f"[{section.name}]"] + [f"{name} = {_toml_value(value)}" for name, value in changed]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    os.chmod(tmp, 0o600)  # may hold a Telegram token
+    os.replace(tmp, path)
+    return path

@@ -1,6 +1,6 @@
 # tradebot
 
-An automated trading bot for BNB Chain, the network Trust Wallet uses for BNB and BEP20 tokens. It trades between USDT and a coin (BNB by default, or BTC or ETH) on PancakeSwap. It follows the trend, sizes positions by volatility and has several layers of risk controls. It runs on your own computer and trades from **its own wallet**, never your Trust Wallet.
+An automated trading bot for BNB Chain, the network Trust Wallet uses for BNB and BEP20 tokens. It trades between USDT and a coin (BNB by default, or BTC or ETH) on PancakeSwap. It follows the trend, sizes positions by volatility and has several layers of risk controls. It's a desktop app that runs on your own computer, and it trades from **its own wallet**, never your Trust Wallet.
 
 > **Read this first.** No bot can guarantee a profit, and this one can lose money. The results below are simulations on past prices, and past results don't predict future ones. Start in paper mode, then fund the bot with only what you can afford to lose. **Never give your Trust Wallet recovery phrase to anyone or anything, including this bot.** Anyone offering to "trade for you" in exchange for your phrase is running the most common crypto scam there is.
 
@@ -30,13 +30,13 @@ What this means:
 - **In a strong bull market it earns less than just holding.** It's only partly invested and joins rallies late. If you're sure a coin will go up, holding it beats any bot.
 - **Faster strategies failed.** An early version that traded hourly swings made money before costs, then lost 50% after fees. Only the slower one-week-to-two-month trend signal survived costs.
 
-Re-run these yourself any time with `tradebot backtest` and `tradebot walkforward` (add `--symbol BTCUSDT` for other coins).
+Re-run these yourself any time on the app's Backtest tab, or with `tradebot backtest` and `tradebot walkforward` in a terminal.
 
 ## Why it has its own wallet
 
 Trust Wallet has no API. The only way to give a program "full access" is your recovery phrase, which unlocks every coin on every chain in that wallet, forever. If a bot holds it and the bot, your laptop or a log file is ever compromised, everything is gone.
 
-So the bot creates a **separate wallet** and stores it encrypted with a password. You send it only the amount you want traded. If anything goes wrong, only that amount is at risk, and `tradebot withdraw` sends everything back to your Trust Wallet in one command.
+So the bot creates a **separate wallet** and stores it encrypted with a password. You send it only the amount you want traded. If anything goes wrong, only that amount is at risk, and one button sends everything back to your Trust Wallet.
 
 ## Install (Ubuntu)
 
@@ -46,57 +46,45 @@ Open a terminal (**Ctrl+Alt+T**), paste this and press Enter:
 python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/tradebot/install.sh', '$HOME/install-tradebot.sh')" && bash ~/install-tradebot.sh
 ```
 
-If it says Python's venv module is missing, run the `sudo apt install …` command it prints, then run the line above again. On other systems with Python 3.10+, `pip install ./tradebot` from a copy of this repository works too.
+Run it as yourself, **not** with `sudo`. The installer shows a ✔ for each step, then:
+- adds **Tradebot** (a green icon) to your app list, your desktop and the dock, and
+- opens the app when it's done.
 
-## Getting started
+If it says Python's venv module is missing, run the `sudo apt install …` command it prints, then run the line above again. Running the same line later updates Tradebot. To uninstall, run `bash ~/.local/share/tradebot/install.sh --uninstall`. That keeps your wallet and settings in `~/.tradebot`.
 
-**1. See the evidence**
+## Using the app
 
-```bash
-tradebot backtest
-tradebot walkforward
-```
+Open Tradebot from the dock, the app list (press Super and type "Tradebot") or the desktop icon. If Ubuntu says the desktop icon isn't allowed to launch, right-click it and choose **Allow Launching**. It opens in its own window with four tabs:
 
-**2. Paper trade for a few weeks.** This uses live prices and $1,000 of pretend money. Nothing touches the blockchain.
+- **Dashboard:** Start, Pause and **Emergency sell & stop** buttons. It also shows your account value and profit, how far you are below your peak, and how much is in the coin now vs the bot's target. A chart compares the bot with just holding, and panels show the current trend signal, recent trades and a live activity log.
+- **Backtest:** pick BNB, BTC or ETH and a period, then run a backtest or the honest walk-forward test. It shows a growth chart against just holding, the full numbers, and every unseen 3-month window.
+- **Wallet:** creates the bot's own wallet and shows its address with a **QR code you can scan with Trust Wallet** on your phone. It also shows live balances (USDT, the coin, BNB for fees) and has a withdraw form that sends everything back to your Trust Wallet.
+- **Settings:** paper or live mode, which coin, the paper starting balance, risk limits (max invested, kill switch, daily loss limit) and optional Telegram phone alerts.
 
-```bash
-tradebot run
-```
+**The bot keeps running when you close the window**, so it can trade around the clock. Opening Tradebot again shows it. **Quit** (top right) stops it; your coins stay where they are. After restarting the computer, open Tradebot and press **Start**.
 
-It checks the market at the end of every hour, prints what it decided and why, and logs every trade to `~/.tradebot/trades.csv`. Run `tradebot status` in another terminal to check on it.
+### Getting started
 
-**3. Go live, with a small amount first**
+1. **Check the evidence.** On the Backtest tab, run the walk-forward test for BNB.
+2. **Paper trade for a few weeks.** On the Dashboard, press **Start**. It uses live prices and $1,000 of pretend money, and nothing touches the blockchain. It checks the market at the end of every hour.
+3. **Go live, with a small amount first.**
+   - On the Wallet tab, create the bot's wallet. Choose a password of at least 10 characters and keep it safe.
+   - In Trust Wallet, tap Send, choose **USDT on BNB Smart Chain** (BEP20) and scan the QR code. Also send about **0.01 BNB** for transaction fees; each trade costs a few cents.
+   - On the Settings tab, switch to **Live** and save.
+   - Press **Start** on the Dashboard. It asks for the wallet password and a confirmation before it touches real funds.
+4. **Keep the computer on.** The bot only trades while the computer is on and awake, so turn off automatic suspend on a laptop.
 
-```bash
-tradebot new-wallet
-```
+**Getting your money back:** pause the bot, then use the Withdraw form on the Wallet tab. It sends all the USDT, the coin and the leftover BNB to your Trust Wallet address, converting WBNB to normal BNB first so it shows up in Trust Wallet without extra steps.
 
-This prints the bot's address. In Trust Wallet, send to that address **on BNB Smart Chain**:
-- the USDT (BEP20) you want it to trade, and
-- about **0.01 BNB** for transaction fees. Each trade costs a few cents.
+### From the terminal instead
 
-Then open `~/.tradebot/config.toml`, change `mode = "paper"` to `mode = "live"`, and start it:
-
-```bash
-tradebot run
-```
-
-It shows the wallet's balances and asks you to type `live` before it touches real funds.
-
-**4. Keep it running.** The bot only trades while it's running, so the computer has to stay on and awake. On a laptop, turn off automatic suspend. Run it inside `tmux` so closing the terminal doesn't stop it: `sudo apt install tmux`, then `tmux`, then `tradebot run`. Press Ctrl+B then D to detach, and `tmux attach` to come back. A small cloud server (about $5/month) works too.
-
-**Getting your money back:**
-
-```bash
-tradebot withdraw --to <your Trust Wallet BNB Smart Chain address>
-```
-
-This stops trading and sends all USDT, the coin and the leftover BNB back to you. WBNB is converted to normal BNB first, so it shows up in Trust Wallet without extra steps. Stop the running bot (Ctrl+C) first; the command refuses to run while the bot is trading.
+Everything the app does also works as a command (see the table below). `tradebot run` trades in the terminal, reading paper or live mode from `~/.tradebot/config.toml`. `tradebot withdraw --to <address>` sends the funds back. The app and `tradebot run` share a lock, so they can never both trade the same wallet at once.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `tradebot gui` | Opens the app (what the Tradebot icon runs). `--stop` quits it, `--check` just checks that it starts |
 | `tradebot init` | Creates `~/.tradebot` with a starter config (the installer does this for you) |
 | `tradebot backtest` | Replays the strategy over the last 4 years (`--symbol`, `--days`, `--csv` to save the equity curve) |
 | `tradebot walkforward` | Tests on unseen data with settings picked from the past only |
@@ -142,6 +130,7 @@ It never borrows, uses leverage or shorts. The worst case for the coin part is t
 **Wallet and process**
 - **Encrypted wallet:** the key is stored encrypted (scrypt) with owner-only file permissions, outside this repository. The bot never accepts a recovery phrase.
 - **Single instance:** a lock stops two copies of the bot from trading the same wallet.
+- **App security:** the app's window talks to a small server that only this computer can reach (127.0.0.1). Every request needs a secret token that only the window has, so a website open in your browser can't press the app's buttons. The wallet password is never saved, and the wallet is only unlocked in memory while live trading runs.
 - **Alerts:** optional Telegram notifications for every trade, error and kill-switch event (see `config.toml`).
 
 ## Settings
@@ -170,6 +159,7 @@ The tests cover:
 - the cost model and the backtest's fill timing,
 - walk-forward testing,
 - the config, wallet and state handling,
-- the bot loop.
+- the bot loop,
+- the app server: its token and host checks, and every button from Start to Withdraw.
 
 The live-trading path was also rehearsed end to end on a local fork of BNB Chain mainnet (Foundry's `anvil`): a real swap on the PancakeSwap v3 0.01% pool, the price-deviation and simulation guards, the kill switch selling to USDT, and `withdraw` emptying the wallet.

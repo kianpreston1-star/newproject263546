@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=1.24",
     "pandas>=2.2",
     "requests>=2.28",
+    "segno>=1.5",
     "tomli>=2; python_version<'3.11'",
 ]
 
@@ -26,7 +27,7 @@ tradebot = "tradebot.cli:main"
 packages = ["tradebot"]
 
 [tool.setuptools.package-data]
-tradebot = ["config.example.toml"]
+tradebot = ["config.example.toml", "ui/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

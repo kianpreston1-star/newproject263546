@@ -16,6 +16,7 @@ class Store:
         self.state_path = home / "state.json"
         self.halt_path = home / "HALT"
         self.trades_path = home / "trades.csv"
+        self.equity_path = home / "equity.csv"
 
     def load(self) -> dict:
         if not self.state_path.exists():
@@ -42,6 +43,17 @@ class Store:
 
     def clear_halt(self) -> None:
         self.halt_path.unlink(missing_ok=True)
+
+    def resume(self) -> None:
+        """Clears a halt and measures future drawdowns from the current balance, in every mode."""
+        self.clear_halt()
+        saved = self.load()
+        for mode in ("paper", "live"):
+            risk = saved.get(mode, {}).get("risk")
+            if risk:
+                risk.update(peak_equity=0.0, halted=False, halt_reason="")
+        saved["resumes"] = saved.get("resumes", 0) + 1
+        self.save(saved)
 
     # A PID lock, so two copies of the bot never trade the same wallet at once.
     def running_pid(self) -> int | None:
@@ -75,3 +87,39 @@ class Store:
             w.writerow([datetime.now(timezone.utc).isoformat(timespec="seconds"), mode, fill.side,
                         f"{fill.asset_amount:.8f}", f"{fill.quote_amount:.2f}", f"{fill.price:.4f}", f"{fill.cost_usd:.4f}",
                         fill.route, fill.tx_hash, f"{equity:.2f}", reason])
+
+    def log_equity(self, mode: str, price: float, equity: float, exposure: float, target: float) -> None:
+        new = not self.equity_path.exists()
+        with open(self.equity_path, "a", newline="") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["time", "mode", "price", "equity", "exposure", "target"])
+            w.writerow([datetime.now(timezone.utc).isoformat(timespec="seconds"), mode, f"{price:.6f}",
+                        f"{equity:.4f}", f"{exposure:.4f}", f"{target:.4f}"])
+
+    @staticmethod
+    def _read_csv(path: Path, mode: str | None, limit: int) -> list[dict]:
+        if not path.exists():
+            return []
+        with open(path, newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r.get("time") and (mode is None or r.get("mode") == mode)]
+        return rows[-limit:]
+
+    def read_trades(self, mode: str | None = None, limit: int = 200) -> list[dict]:
+        return self._read_csv(self.trades_path, mode, limit)
+
+    def read_equity(self, mode: str | None = None, limit: int = 5000) -> list[dict]:
+        return self._read_csv(self.equity_path, mode, limit)
+
+    def clear_mode(self, mode: str) -> None:
+        """Deletes one mode's rows from the trade and equity logs (used when resetting the paper account)."""
+        for path in (self.trades_path, self.equity_path):
+            if not path.exists():
+                continue
+            with open(path, newline="") as f:
+                rows = list(csv.reader(f))
+            keep = [rows[0]] + [r for r in rows[1:] if len(r) > 1 and r[1] != mode] if rows else []
+            tmp = path.with_suffix(".tmp")
+            with open(tmp, "w", newline="") as f:
+                csv.writer(f).writerows(keep)
+            os.replace(tmp, path)

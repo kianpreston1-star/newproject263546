@@ -45,7 +45,15 @@ def print_metrics(bot: dict, hold: dict, symbol: str) -> None:
         print(f"{label:28s}{fmt(bot[key]):>12s}{fmt(hold[key]):>18s}")
 
 
-def cmd_init(args) -> None:
+def cmd_gui(args) -> None:
+    from . import gui
+
+    if not (home_dir() / "config.toml").exists():
+        cmd_init(args, quiet=True)
+    gui.main(args)
+
+
+def cmd_init(args, quiet: bool = False) -> None:
     home = home_dir()
     home.mkdir(parents=True, exist_ok=True)
     home.chmod(0o700)
@@ -54,8 +62,12 @@ def cmd_init(args) -> None:
         print(f"{target} already exists; leaving it alone.")
     else:
         target.write_text((Path(__file__).parent / "config.example.toml").read_text())
+        target.chmod(0o600)
+        if quiet:
+            return
         print(f"Wrote {target}. It starts in paper mode (real prices, pretend money).")
-    print("\nNext:\n  tradebot backtest       see how the strategy did on the last 4 years\n"
+    print("\nNext:\n  tradebot gui            open the app\n"
+          "  tradebot backtest       see how the strategy did on the last 4 years\n"
           "  tradebot run            paper-trade with live prices\n"
           "  tradebot new-wallet     when you're ready for real money (see README)")
 
@@ -78,37 +90,14 @@ Start small. You can pull everything back any time with: tradebot withdraw --to 
 {WARNING}""")
 
 
-def load_live(cfg: Config):
-    from .dex import Chain, LiveBroker
-    from .wallet import ask_password, load_account
-
-    account = load_account(home_dir() / "keystore.json", ask_password())
-    chain = Chain(cfg, account)
-    return chain, LiveBroker(chain, cfg)
-
-
-def make_bot(cfg: Config):
-    from .broker import PaperBroker
-    from .engine import Bot
-    from .notify import Notifier
-    from .store import Store
-
-    store = Store(home_dir())
-    if cfg.mode == "live":
-        chain, broker = load_live(cfg)
-    else:
-        chain = None
-        saved = store.load().get("paper", {})
-        p = cfg.paper
-        broker = PaperBroker(saved.get("quote", p.starting_cash), saved.get("asset", 0.0), p.fee_bps, p.slippage_bps, p.gas_usd)
-    return Bot(cfg, broker, market(cfg), store, Notifier(cfg.notify)), chain
-
-
 def cmd_run(args) -> None:
     cfg = load_config(args.config)
     setup_logging(args.verbose, to_file=True)
     print(WARNING + "\n")
-    bot, chain = make_bot(cfg)
+    from .engine import build_bot
+    from .wallet import ask_password
+
+    bot, chain = build_bot(cfg, ask_password() if cfg.mode == "live" else None)
     bot.store.acquire_lock()
     try:
         _run(bot, chain, cfg, args)
@@ -152,6 +141,7 @@ def cmd_status(args) -> None:
         from .wallet import wallet_address
 
         print(f"Bot wallet: {wallet_address(home_dir() / 'keystore.json')}")
+    saved = saved.get(cfg.mode, {})
     if "last_tick" in saved:
         s, r = saved["last_signal"], saved["risk"]
         print(f"Last check: {saved['last_tick'][:19]} UTC   price ${s['close']:,.2f}   trend {s['trend']:+.2f}   "
@@ -238,14 +228,7 @@ def cmd_stop(args) -> None:
 def cmd_resume(args) -> None:
     from .store import Store
 
-    store = Store(home_dir())
-    store.clear_halt()
-    saved = store.load()
-    if "risk" in saved:
-        saved["risk"]["peak_equity"] = 0.0  # measure future drawdowns from today's balance
-        saved["risk"]["halted"] = False
-        saved["risk"]["halt_reason"] = ""
-        store.save(saved)
+    Store(home_dir()).resume()
     print("Resumed. The bot will trade again on its next check.")
 
 
@@ -269,7 +252,10 @@ def cmd_withdraw(args) -> None:
 def _withdraw(cfg: Config, store, args) -> None:
     from web3 import Web3
 
-    chain, broker = load_live(cfg)
+    from .engine import load_live
+    from .wallet import ask_password
+
+    chain, broker = load_live(cfg, ask_password())
     to = Web3.to_checksum_address(args.to)
     if to == chain.address:
         sys.exit("That's the bot's own address. Use your Trust Wallet's BNB Smart Chain address.")
@@ -290,6 +276,12 @@ def main(argv=None) -> None:
     ap.add_argument("--config", help="config file (default: ~/.tradebot/config.toml)")
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("gui", help="open the desktop app (the bot keeps running in the background)")
+    p.add_argument("--check", action="store_true", help="start the app server if needed and report, without a window")
+    p.add_argument("--stop", action="store_true", help="quit the background app and stop its bot")
+    p.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_gui)
 
     sub.add_parser("init", help="create ~/.tradebot with a starter config").set_defaults(func=cmd_init)
     sub.add_parser("new-wallet", help="create the bot's own encrypted wallet").set_defaults(func=cmd_new_wallet)
@@ -329,7 +321,7 @@ def main(argv=None) -> None:
     p.set_defaults(func=cmd_withdraw)
 
     args = ap.parse_args(argv)
-    if args.command not in ("run", "withdraw"):
+    if args.command not in ("run", "withdraw", "gui"):
         setup_logging(args.verbose)
     try:
         args.func(args)

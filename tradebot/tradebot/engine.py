@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 import time
 
 import pandas as pd
 
 from .broker import PaperBroker, TradeSkipped
-from .config import Config
+from .config import Config, home_dir
 from .data import MarketData, interval_seconds
 from .notify import Notifier
 from .risk import RiskManager, RiskState
@@ -28,6 +29,16 @@ class Bot:
         self.risk = RiskManager(cfg.risk)
         self.mode = "paper" if isinstance(broker, PaperBroker) else "live"
         self._acted_on_halt = False
+        self.next_check: float | None = None  # unix time of the next scheduled check, for the app's countdown
+        self._poke = threading.Event()
+
+    def poke(self) -> None:
+        """Wakes a waiting run_forever at once, e.g. to act on an emergency stop without the 10 s poll."""
+        self._poke.set()
+
+    def _wait(self, seconds: float) -> None:
+        self._poke.wait(seconds)
+        self._poke.clear()
 
     def signal(self) -> tuple[pd.Series, pd.Timestamp]:
         m = self.cfg.market
@@ -43,7 +54,9 @@ class Bot:
         sig, closed_at = self.signal()
         price = float(sig["close"])
         saved = self.store.load()
-        state = RiskState.from_dict(saved.get("risk", {}))
+        resumes = saved.get("resumes", 0)
+        section = saved.get(self.mode, {})  # paper and live keep separate peaks and counters
+        state = RiskState.from_dict(section.get("risk", {}))
         halt = self.store.halt_reason()
         state.halted, state.halt_reason = halt is not None, halt or ""
 
@@ -70,20 +83,28 @@ class Bot:
                                    + (f". tx {fill.tx_hash}" if fill.tx_hash else ""))
         self._acted_on_halt = state.halted
 
-        saved.update({"risk": state.to_dict(), "last_tick": pd.Timestamp.now(tz="UTC").isoformat(),
-                      "last_signal": {k: (None if pd.isna(v) else round(float(v), 4)) for k, v in sig.items()},
-                      "last_equity": port.equity, "last_target": decision.target})
+        section.update({"risk": state.to_dict(), "last_tick": pd.Timestamp.now(tz="UTC").isoformat(),
+                        "last_signal": {k: (None if pd.isna(v) else round(float(v), 4)) for k, v in sig.items()},
+                        "last_equity": port.equity, "last_target": decision.target, "last_exposure": port.exposure})
         if isinstance(self.broker, PaperBroker):
-            saved["paper"] = {"quote": self.broker.quote, "asset": self.broker.asset}
+            section["balances"] = {"quote": self.broker.quote, "asset": self.broker.asset}
+        saved = self.store.load()  # re-read, so a `resume` made during this check isn't lost
+        if saved.get("resumes", 0) != resumes:
+            section["risk"]["peak_equity"] = port.equity
+        saved[self.mode] = section
         self.store.save(saved)
+        self.store.log_equity(self.mode, price, port.equity, port.exposure, decision.target)
         return (f"[{self.mode}] candle {closed_at:%Y-%m-%d %H:%M} price ${price:,.2f} | trend {sig['trend']:+.2f} "
                 f"target {decision.target:.0%} holding {port.exposure:.0%} | account ${port.equity:,.2f} "
                 f"(peak ${state.peak_equity:,.2f}) | {note}")
 
-    def run_forever(self) -> None:
+    def run_forever(self, stop: threading.Event | None = None) -> None:
+        """Checks the market once per candle until `stop` is set (or forever). Call poke() after setting `stop`
+        to end the wait at once; otherwise it's noticed within 10 seconds."""
+        stop = stop or threading.Event()
         step = interval_seconds(self.cfg.market.interval)
         failures = 0
-        while True:
+        while not stop.is_set():
             try:
                 log.info(self.tick())
                 failures = 0
@@ -94,12 +115,42 @@ class Bot:
                 log.exception("Check failed (%s in a row)", failures)
                 if failures in (1, 5) or failures % 20 == 0:
                     self.notifier.send(f"⚠️ Error ({failures} in a row): {type(e).__name__}: {e}")
-                time.sleep(min(60 * failures, 600))
+                retry = time.time() + min(60 * failures, 600)
+                self.next_check = retry
+                while time.time() < retry and not stop.is_set():  # back off; a halt can't act while checks fail
+                    self._wait(min(10, max(retry - time.time(), 0)))
                 continue
             # Wake 20 s after the next candle closes. Check the halt flag every 10 s so `tradebot stop` acts fast.
-            wake = (math.floor(time.time() / step) + 1) * step + 20
-            while time.time() < wake:
+            wake = self.next_check = (math.floor(time.time() / step) + 1) * step + 20
+            while time.time() < wake and not stop.is_set():
                 if self.store.halt_reason() and not self._acted_on_halt:
                     log.info("Halt requested: %s", self.store.halt_reason())
                     break
-                time.sleep(min(10, max(wake - time.time(), 0)))
+                self._wait(min(10, max(wake - time.time(), 0)))
+        self.next_check = None
+
+
+def load_live(cfg: Config, password: str):
+    """Unlocks the bot wallet and connects to BNB Chain."""
+    from .dex import Chain, LiveBroker
+    from .wallet import load_account
+
+    chain = Chain(cfg, load_account(home_dir() / "keystore.json", password))
+    return chain, LiveBroker(chain, cfg)
+
+
+def build_bot(cfg: Config, password: str | None = None, market: MarketData | None = None):
+    """A bot for the configured mode. Live mode needs the wallet password. Returns (bot, chain or None)."""
+    store = Store(home_dir())
+    chain = None
+    if cfg.mode == "live":
+        if not password:
+            raise ValueError("Live mode needs the bot wallet's password.")
+        chain, broker = load_live(cfg, password)
+    else:
+        saved = store.load().get("paper", {}).get("balances", {})
+        p = cfg.paper
+        broker = PaperBroker(saved.get("quote", p.starting_cash), saved.get("asset", 0.0), p.fee_bps, p.slippage_bps,
+                             p.gas_usd)
+    market = market or MarketData(cfg.market.data_url, home_dir() / "data")
+    return Bot(cfg, broker, market, store, Notifier(cfg.notify)), chain

@@ -53,6 +53,12 @@ pick_browser() {
   fi
 }
 
+if [[ $EUID -eq 0 && -z "${CLOUD_AI_ALLOW_ROOT:-}" && "${1:-}" != "--stop" ]]; then
+  msg="Cloud AI can't open as root (browsers refuse to run as root). Open it as your normal user instead."
+  notify-send "Cloud AI" "$msg" 2>/dev/null || echo "$msg" >&2
+  exit 1
+fi
+
 case "${1:-}" in
   --stop)
     pkill -f "^python3 $HERE/serve.py" && echo "Cloud AI server stopped." || echo "Cloud AI server wasn't running."

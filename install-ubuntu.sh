@@ -5,7 +5,8 @@
 # the app in your browser.
 #
 #   Install or update (uses python3, since newer Ubuntu releases no longer include wget by default):
-#     python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh', '/tmp/install-cloud-ai.sh')" && bash /tmp/install-cloud-ai.sh
+#     python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh', '$HOME/install-cloud-ai.sh')" && bash ~/install-cloud-ai.sh
+#   Run it as yourself, not as root or with sudo.
 #   Uninstall:
 #     bash ~/.local/share/cloud-ai/install-ubuntu.sh --uninstall
 set -euo pipefail
@@ -44,6 +45,15 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   rm -f "$MENU_FILE" "$DESKTOP_FILE"
   say "Cloud AI has been removed."
   exit 0
+fi
+
+# Installing as root puts Cloud AI in root's account, where the normal user can't see it, and browsers
+# refuse to run as root. (Uninstalling as root is allowed, to clean up such an install.)
+if [[ $EUID -eq 0 && -z "${CLOUD_AI_ALLOW_ROOT:-}" ]]; then
+  bad "Please don't run this as root or with sudo."
+  echo "    Running as root installs Cloud AI for the administrator account, where you can't see or open it."
+  echo "    Type exit (or open a new terminal) so the prompt ends with \$ instead of #, then run the command again."
+  exit 1
 fi
 
 trap 'bad "The install stopped unexpectedly (line $LINENO: $BASH_COMMAND). Please copy everything above and ask for help."' ERR

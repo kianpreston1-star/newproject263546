@@ -7,10 +7,10 @@ A free AI chat app that runs in the cloud. It can **search the web, read web pag
 Open a terminal (**Ctrl+Alt+T**), paste this line and press Enter:
 
 ```bash
-python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh', '/tmp/install-cloud-ai.sh')" && bash /tmp/install-cloud-ai.sh
+python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/kianpreston1-star/newproject263546/refs/heads/claude/determined-bardeen-vvrlm3/install-ubuntu.sh', '$HOME/install-cloud-ai.sh')" && bash ~/install-cloud-ai.sh
 ```
 
-This uses Python, which every Ubuntu desktop includes, because newer Ubuntu releases no longer ship `wget` by default. The installer shows a ✔ for each step and checks that the app actually starts.
+Run it as yourself, **not** as root or with `sudo`: the prompt should end in `$`, not `#`. This uses Python, which every Ubuntu desktop includes, because newer Ubuntu releases no longer ship `wget` by default. The installer shows a ✔ for each step and checks that the app actually starts.
 
 Cloud AI opens as soon as the install finishes. After that, open it in any of these ways:
 

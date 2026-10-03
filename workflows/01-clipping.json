@@ -1,0 +1,500 @@
+{
+  "name": "01 - Clipping engine (CC)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "b8795cf7084e4760979e2728",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "be04d80a05bd4102a7cc420c",
+      "name": "Read config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the key/value 'config' tab into one object.\nconst cfg = {};\nfor (const item of $input.all()) {\n  const k = (item.json.key || '').toString().trim();\n  if (!k || k.startsWith('#')) continue;\n  cfg[k] = (item.json.value === undefined || item.json.value === null) ? '' : item.json.value.toString().trim();\n}\nconst list = (s) => (cfg[s] || '').split(';').map(x => x.trim()).filter(Boolean);\ncfg._platforms = list('platforms');\ncfg._keywords = list('niche_keywords');\ncfg._fixedChannels = list('clip_fixed_channel_ids');\nreturn [{ json: { config: cfg } }];\n"
+      },
+      "id": "cfbd25bfed934de98c52af4f",
+      "name": "Parse config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.config.engine1_clipping }}",
+              "rightValue": "ON",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "a9be62cec378452987248f73",
+      "name": "Engine 1 ON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "type",
+              "value": "video"
+            },
+            {
+              "name": "videoLicense",
+              "value": "creativeCommon"
+            },
+            {
+              "name": "videoDuration",
+              "value": "long"
+            },
+            {
+              "name": "order",
+              "value": "date"
+            },
+            {
+              "name": "maxResults",
+              "value": "15"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.config._keywords.join(' | ') }}"
+            },
+            {
+              "name": "key",
+              "value": "={{ $json.config.youtube_api_key || 'SET_IN_CONFIG_OR_CRED' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6fb0ed92f3394548b41476db",
+      "name": "YouTube CC search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "log",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "8489df380dab4f6aa07a5975",
+      "name": "Read log (dedupe)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        130
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep CC videos we haven't clipped before, cap to clip_max_per_run.\nconst cfg = $('Parse config').first().json.config;\nconst maxN = parseInt(cfg.clip_max_per_run || '2', 10);\nlet done = new Set();\ntry { done = new Set($('Read log (dedupe)').all().map(i => i.json.source_url)); } catch(e){}\nconst out = [];\nfor (const it of $('YouTube CC search').all()) {\n  const id = it.json.id?.videoId; if (!id) continue;\n  const url = 'https://www.youtube.com/watch?v=' + id;\n  if (done.has(url)) continue;\n  out.push({ json: {\n    sourceUrl: url,\n    title: it.json.snippet?.title || '',\n    author: it.json.snippet?.channelTitle || '',\n    config: cfg,\n    sourceAttribution: 'Clip from \"' + (it.json.snippet?.title||'') + '\" by ' + (it.json.snippet?.channelTitle||'') + ' (' + url + ') \u2014 licensed CC BY.',\n  }});\n  if (out.length >= maxN) break;\n}\nreturn out;\n"
+      },
+      "id": "ed4174760dc941bdb66e3577",
+      "name": "Filter new + limit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "batchSize": 1
+      },
+      "id": "f7a8558944c64887bb476c55",
+      "name": "For each source",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.opus.pro/api/v1/clips",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { video_url: $json.sourceUrl, max_clips: parseInt($json.config.clips_per_source||'3',10) } }}",
+        "options": {}
+      },
+      "id": "0755781109484902953a8ba2",
+      "name": "Submit clip job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "minutes"
+      },
+      "id": "d2987b173c4743b980cce4f1",
+      "name": "Wait for clips",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.opus.pro/api/v1/clips/{{ $('Submit clip job').item.json.id || $json.id }}",
+        "options": {}
+      },
+      "id": "d061df9c81a14a3c9e520cba",
+      "name": "Get clips",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1580,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn each returned clip into an item for the shared post subworkflow.\nconst src = $('For each source').item.json;\nconst clips = $json.clips || $json.data || [];\nconst out = [];\nfor (const c of clips) {\n  out.push({ json: {\n    videoUrl: c.url || c.download_url || c.video_url,\n    title: c.title || src.title,\n    transcript: c.transcript || '',\n    engine: 'clip',\n    sourceType: 'clip',\n    sourceUrl: src.sourceUrl,\n    sourceAttribution: src.sourceAttribution,\n    platforms: src.config._platforms,\n    config: src.config,\n  }});\n}\nreturn out;\n"
+      },
+      "id": "4acf6e6e853a4ed7ad2a9009",
+      "name": "Map clips to posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "SET_SUBWORKFLOW_ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "ab8c890eb9424ea5a638b3fc",
+      "name": "Post + log (shared)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2020,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "ENGINE 1 \u2014 CC CLIPPING\nFinds Creative-Commons long-form in your niche, clips it, posts via the shared subworkflow.\nSet Google Sheets credential + your spreadsheet ID on the sheet nodes.",
+        "height": 170,
+        "width": 380,
+        "color": 5
+      },
+      "id": "54e89d3b95914b8c861bc8a6",
+      "name": "Note be0e5d",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "YOUTUBE: set your YouTube Data API key (config key youtube_api_key, or move to a credential). videoLicense=creativeCommon keeps sourcing safe \u2014 see docs/COMPLIANCE.md. videoDuration=long = >20min; change to 'medium' for 4\u201320min.",
+        "height": 180,
+        "width": 300,
+        "color": 6
+      },
+      "id": "7f37c1387c104dc199a68a88",
+      "name": "Note b2f7b1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        470,
+        90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CLIPPER: default OpusClip endpoint. Swap URL/body for Vizard/Klap/OpenShorts to match clip_provider. If your n8n can't receive a webhook, keep this Wait+poll; else replace with a Webhook callback.",
+        "height": 170,
+        "width": 300,
+        "color": 6
+      },
+      "id": "65a0adca76a34c5ebe82ba11",
+      "name": "Note 534191",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1130,
+        90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Link this to 00 - Shared (post, log, alert) after import.",
+        "height": 110,
+        "width": 240,
+        "color": 3
+      },
+      "id": "5b82eef4b2764cb0a0df86c7",
+      "name": "Note 0717bc",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2010,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read config": {
+      "main": [
+        [
+          {
+            "node": "Parse config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse config": {
+      "main": [
+        [
+          {
+            "node": "Engine 1 ON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine 1 ON?": {
+      "main": [
+        [
+          {
+            "node": "YouTube CC search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube CC search": {
+      "main": [
+        [
+          {
+            "node": "Read log (dedupe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read log (dedupe)": {
+      "main": [
+        [
+          {
+            "node": "Filter new + limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter new + limit": {
+      "main": [
+        [
+          {
+            "node": "For each source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For each source": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Submit clip job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit clip job": {
+      "main": [
+        [
+          {
+            "node": "Wait for clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for clips": {
+      "main": [
+        [
+          {
+            "node": "Get clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get clips": {
+      "main": [
+        [
+          {
+            "node": "Map clips to posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map clips to posts": {
+      "main": [
+        [
+          {
+            "node": "Post + log (shared)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post + log (shared)": {
+      "main": [
+        [
+          {
+            "node": "For each source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

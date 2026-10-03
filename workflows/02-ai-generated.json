@@ -1,0 +1,657 @@
+{
+  "name": "02 - AI-generated engine",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "1e2831efc4494398accb00f0",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "2ca577104dc44d86ae500eef",
+      "name": "Read config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -290,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the key/value 'config' tab into one object.\nconst cfg = {};\nfor (const item of $input.all()) {\n  const k = (item.json.key || '').toString().trim();\n  if (!k || k.startsWith('#')) continue;\n  cfg[k] = (item.json.value === undefined || item.json.value === null) ? '' : item.json.value.toString().trim();\n}\nconst list = (s) => (cfg[s] || '').split(';').map(x => x.trim()).filter(Boolean);\ncfg._platforms = list('platforms');\ncfg._keywords = list('niche_keywords');\ncfg._fixedChannels = list('clip_fixed_channel_ids');\nreturn [{ json: { config: cfg } }];\n"
+      },
+      "id": "6d1551fca73247249a663ea1",
+      "name": "Parse config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.config.engine2_ai }}",
+              "rightValue": "ON",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "104866f5d8c8412da2b54fcc",
+      "name": "Engine 2 ON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        130,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "queue",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "02a8e7616463419ea4aa674f",
+      "name": "Read queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Take up to ai_max_per_run unused topics; attach a random variety seed each.\nconst cfg = $('Parse config').first().json.config;\nconst maxN = parseInt(cfg.ai_max_per_run || '2', 10);\nconst hooks=['curiosity_gap','contrarian','direct_promise','number_list','mistake_warning','question','story_cold_open','myth_vs_fact','before_after','shock_stat'];\nconst structs=['problem_twist_payoff','list','myth_vs_fact','story','how_it_works'];\nconst pacings=['punchy','narrative'];\nconst rand=a=>a[Math.floor(Math.random()*a.length)];\nconst rows = $('Read queue').all().map(i=>i.json).filter(r=>(r.status||'new')==='new').slice(0,maxN);\nreturn rows.map(r=>({ json: { ...r, config: cfg,\n  hook_style: rand(hooks), structure: rand(structs), pacing: rand(pacings) }}));\n"
+      },
+      "id": "0d832863e6834f38986e533e",
+      "name": "Pick topics + variety",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        550,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "batchSize": 1
+      },
+      "id": "47d865ddff3444fb823bff66",
+      "name": "For each topic",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [ { parts: [ { text: 'Write a ' + ($json.config.ai_clip_length_sec||40) + 's vertical short script. Topic: ' + $json.topic + '. Hook style: ' + $json.hook_style + '. Structure: ' + $json.structure + '. Pacing: ' + $json.pacing + '. Voice: ' + ($json.config.brand_voice||'') + '. No hallucinated facts. Return ONLY JSON: {\"title\":\"...\",\"voiceover\":\"...\",\"beats\":[{\"text_on_screen\":\"...\",\"broll\":\"...\",\"seconds\":4}],\"music_mood\":\"...\"}' } ] } ] } }}",
+        "options": {}
+      },
+      "id": "8811f181db144a7c8edd9418",
+      "name": "Write script (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        970,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const t=$('For each topic').item.json;\nlet s={};\ntry { const raw=$json?.candidates?.[0]?.content?.parts?.[0]?.text||'{}';\n  s=JSON.parse(raw.replace(/```json|```/g,'').trim()); } catch(e){ s={title:t.topic,voiceover:t.topic,beats:[],music_mood:'upbeat'}; }\nreturn [{ json: { ...t, script: s, title: s.title, voiceover: s.voiceover, beats: s.beats||[] } }];\n"
+      },
+      "id": "e6ff817d04954d2ba1786fc0",
+      "name": "Parse script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:8880/v1/audio/speech",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'kokoro', input: $json.voiceover, voice: 'af_sky', response_format: 'mp3' } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "8cc56bbd31954721acd94e2b",
+      "name": "Voiceover (TTS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1390,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "beats",
+        "options": {}
+      },
+      "id": "860aefecb2b346d682f752e6",
+      "name": "Split beats",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.pexels.com/videos/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.broll || $json.text_on_screen || 'technology' }}"
+            },
+            {
+              "name": "per_page",
+              "value": "1"
+            },
+            {
+              "name": "orientation",
+              "value": "portrait"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1b649034045243ffb22331eb",
+      "name": "Fetch B-roll (stock)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1810,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "a0cf4414741b46a08f538df4",
+      "name": "Collect beats",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2020,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.creatomate.com/v1/renders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { template_id: $('For each topic').item.json.config.creatomate_template_id || 'SET_TEMPLATE_ID', modifications: { title: $('Parse script').item.json.title, 'voiceover_url': 'SET_FROM_TTS_UPLOAD' } } }}",
+        "options": {}
+      },
+      "id": "6f1c4544c87f4424ae299573",
+      "name": "Render video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2230,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 90,
+        "unit": "seconds"
+      },
+      "id": "07ce351de2244049a7df253f",
+      "name": "Wait for render",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('For each topic').item.json.id }}",
+            "status": "used",
+            "used_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "4811c56779074ffbb4cd5c71",
+      "name": "Mark topic used",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const t=$('For each topic').item.json;\nconst s=$('Parse script').item.json;\nreturn [{ json: {\n  videoUrl: $json.url || $json.video_url || 'RENDER_URL',\n  title: s.title, transcript: s.voiceover,\n  engine: 'ai_generated', sourceType: 'ai_generated',\n  platforms: t.config._platforms, config: t.config,\n}}];\n"
+      },
+      "id": "e1e623e381024f33ac20dd48",
+      "name": "Build post item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "SET_SUBWORKFLOW_ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "66052c2ee67d4b108830591c",
+      "name": "Post + log (shared)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3070,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "ENGINE 2 \u2014 AI-GENERATED\nConsumes topics from the queue (filled by 03 - Idea engine), writes a script with a random variety seed, makes voice + visuals, renders, posts.",
+        "height": 170,
+        "width": 400,
+        "color": 5
+      },
+      "id": "5cb5207814eb4bee9d5e1460",
+      "name": "Note 8a1e86",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "TTS: default self-hosted Kokoro (OpenAI-compatible, free). Swap for ElevenLabs if ai_voice_provider=elevenlabs. The audio file must be uploaded somewhere the renderer can fetch (set voiceover_url).",
+        "height": 180,
+        "width": 300,
+        "color": 6
+      },
+      "id": "ffd463f4d0eb4abaaec6950a",
+      "name": "Note af6d4c",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "VISUALS: cheap branch = Pexels stock (set API key). For premium (Veo/HeyGen) swap this B-roll node per ai_visual_mode. See docs/COSTS.md.",
+        "height": 150,
+        "width": 280,
+        "color": 6
+      },
+      "id": "04b2cb4b64464426aa58e7b1",
+      "name": "Note 004dec",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1800,
+        90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "RENDER: Creatomate using templates/creatomate-short.json. Upload the TTS audio + map beat captions/broll into modifications. FFmpeg fallback: scripts/burn_captions.sh.",
+        "height": 170,
+        "width": 300,
+        "color": 6
+      },
+      "id": "c65baa724c2343d085ceca58",
+      "name": "Note 10ffe8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        90
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read config": {
+      "main": [
+        [
+          {
+            "node": "Parse config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse config": {
+      "main": [
+        [
+          {
+            "node": "Engine 2 ON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine 2 ON?": {
+      "main": [
+        [
+          {
+            "node": "Read queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read queue": {
+      "main": [
+        [
+          {
+            "node": "Pick topics + variety",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick topics + variety": {
+      "main": [
+        [
+          {
+            "node": "For each topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For each topic": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Write script (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write script (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Parse script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse script": {
+      "main": [
+        [
+          {
+            "node": "Voiceover (TTS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voiceover (TTS)": {
+      "main": [
+        [
+          {
+            "node": "Split beats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split beats": {
+      "main": [
+        [
+          {
+            "node": "Fetch B-roll (stock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch B-roll (stock)": {
+      "main": [
+        [
+          {
+            "node": "Collect beats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect beats": {
+      "main": [
+        [
+          {
+            "node": "Render video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render video": {
+      "main": [
+        [
+          {
+            "node": "Wait for render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for render": {
+      "main": [
+        [
+          {
+            "node": "Mark topic used",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark topic used": {
+      "main": [
+        [
+          {
+            "node": "Build post item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build post item": {
+      "main": [
+        [
+          {
+            "node": "Post + log (shared)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post + log (shared)": {
+      "main": [
+        [
+          {
+            "node": "For each topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

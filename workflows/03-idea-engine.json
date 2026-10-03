@@ -1,0 +1,360 @@
+{
+  "name": "03 - Idea engine (feeder)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "e98972b8961f4f6ba07ffb5a",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "3f0371c6d8a4406f8e4f3b7d",
+      "name": "Read config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the key/value 'config' tab into one object.\nconst cfg = {};\nfor (const item of $input.all()) {\n  const k = (item.json.key || '').toString().trim();\n  if (!k || k.startsWith('#')) continue;\n  cfg[k] = (item.json.value === undefined || item.json.value === null) ? '' : item.json.value.toString().trim();\n}\nconst list = (s) => (cfg[s] || '').split(';').map(x => x.trim()).filter(Boolean);\ncfg._platforms = list('platforms');\ncfg._keywords = list('niche_keywords');\ncfg._fixedChannels = list('clip_fixed_channel_ids');\nreturn [{ json: { config: cfg } }];\n"
+      },
+      "id": "1f7a8f98b9804ad5b1c86362",
+      "name": "Parse config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.config.engine2_ai }}",
+              "rightValue": "ON",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "2f997408e8a145f4bf62a347",
+      "name": "Engine 2 ON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "queue",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "f64f300de41742049d201d95",
+      "name": "Read queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only generate ideas if unused topics are below the threshold.\nconst cfg = $('Parse config').first().json.config;\nconst minN = parseInt(cfg.topics_min_in_queue || '10', 10);\nconst rows = $('Read queue').all().map(i=>i.json);\nconst unused = rows.filter(r => (r.status||'new')==='new');\nconst recent = rows.slice(-40).map(r=>r.topic).filter(Boolean);\nif (unused.length >= minN) return [];\nreturn [{ json: { config: cfg, need: minN - unused.length, recentTopics: recent } }];\n"
+      },
+      "id": "75ab6a467f11484bb68b09f1",
+      "name": "Queue low?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://news.google.com/rss/search?q={{ encodeURIComponent($json.config._keywords?.join(' OR ') || $json.config.niche_name) }}&hl=en",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "85f946a572ed44eb96e4a400",
+      "name": "Fetch trend signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [ { parts: [ { text: 'You are a short-form strategist for the niche: ' + $('Queue low?').item.json.config.niche_name + '. Keywords: ' + ($('Queue low?').item.json.config._keywords||[]).join(', ') + '. Avoid repeating: ' + ($('Queue low?').item.json.recentTopics||[]).join('; ') + '. Trend signals: ' + ($json.data||'').toString().slice(0,1200) + '. Return ONLY a JSON array of ' + $('Queue low?').item.json.need + ' objects: [{\"topic\":\"...\",\"why_now\":\"...\",\"sub_niche\":\"...\"}]' } ] } ] } }}",
+        "options": {}
+      },
+      "id": "26b6270db29a44d48f9bd950",
+      "name": "Brainstorm topics (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Queue low?').item.json.config;\nlet arr = [];\ntry { const raw = $json?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';\n  arr = JSON.parse(raw.replace(/```json|```/g,'').trim()); } catch(e){ arr = []; }\nreturn arr.map((o,i)=>({ json: {\n  id: 'topic_' + Date.now() + '_' + i,\n  topic: o.topic, niche: cfg.niche_name, status: 'new',\n  created_at: new Date().toISOString(), used_at: ''\n}}));\n"
+      },
+      "id": "f6f7033c6d624e07b1f0c887",
+      "name": "Map to queue rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "SET_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "86734d0c8ed541b995c48302",
+      "name": "Append to queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1580,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "ENGINE 2 FEEDER \u2014 IDEA ENGINE\nTops up the 'queue' tab with fresh, specific topics when it runs low. The AI-generated workflow consumes these. Fully autonomous \u2014 no manual calendar.",
+        "height": 170,
+        "width": 380,
+        "color": 5
+      },
+      "id": "2be77822f38149ecacea75ae",
+      "name": "Note 3f9c15",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "TRENDS: uses a free Google News RSS search as a trend signal. Optional \u2014 safe to leave; LLM also brainstorms from keywords. Add Google Trends/Reddit here if you want.",
+        "height": 160,
+        "width": 280,
+        "color": 6
+      },
+      "id": "cf5bb8ad5aea41c0a6e8316f",
+      "name": "Note e02a2e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        910,
+        90
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read config": {
+      "main": [
+        [
+          {
+            "node": "Parse config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse config": {
+      "main": [
+        [
+          {
+            "node": "Engine 2 ON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine 2 ON?": {
+      "main": [
+        [
+          {
+            "node": "Read queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read queue": {
+      "main": [
+        [
+          {
+            "node": "Queue low?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue low?": {
+      "main": [
+        [
+          {
+            "node": "Fetch trend signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch trend signals": {
+      "main": [
+        [
+          {
+            "node": "Brainstorm topics (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brainstorm topics (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Map to queue rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map to queue rows": {
+      "main": [
+        [
+          {
+            "node": "Append to queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,52 @@
+key,value,notes
+# ─── CONTROL PANEL ───────────────────────────────────────────────────────────,,
+# Import this file to Google Sheets as a tab named "config". The workflows read,,
+# every setting below at runtime so you rarely touch the workflow JSON again.,,
+# Add two more tabs in the same spreadsheet: "queue" and "log" (headers at bottom).,,
+,,
+# ─── ENGINES ─────────────────────────────────────────────────────────────────,,
+engine1_clipping,ON,"Engine 1 (CC clipping). ON or OFF."
+engine2_ai,ON,"Engine 2 (AI-generated). ON or OFF."
+quality_gate,ON,"ON = send Telegram preview and wait for approval before posting. OFF = fully auto. Start ON for the dry run."
+ai_disclosure,ON,"ON = add synthetic-media disclosure to AI-generated posts (Engine 2). Keep ON."
+,,
+# ─── NICHE ───────────────────────────────────────────────────────────────────,,
+niche_name,"AI & technology","Short label for your channel niche."
+niche_keywords,"artificial intelligence; machine learning; AI tools; tech explainer","Semicolon-separated. Drives both the CC finder and AI topic discovery."
+brand_voice,"energetic, plain-English, slightly witty","One-line description of tone for scripts and captions."
+language,en,"Content language (ISO code)."
+,,
+# ─── ENGINE 1: CC CLIPPING ──────────────────────────────────────────────────,,
+clip_source_mode,search,"'search' = auto-find CC videos by keyword. 'channels' = only the fixed channel IDs below."
+clip_fixed_channel_ids,,"Optional. Semicolon-separated YouTube channel IDs you OWN or are licensed to clip. Used when clip_source_mode=channels."
+clip_min_duration_sec,180,"Ignore source videos shorter than this (want long-form to clip)."
+clip_max_per_run,2,"Max new source videos processed per scheduled run (cost + cadence control)."
+clip_provider,opusclip,"opusclip | vizard | klap | openshorts — must match the clipping credential you set up."
+clips_per_source,3,"How many shorts to cut from each source video."
+,,
+# ─── ENGINE 2: AI-GENERATED ─────────────────────────────────────────────────,,
+ai_visual_mode,cheap,"'cheap' = stock + TTS + FFmpeg/Creatomate. 'premium' = AI video (Veo/HeyGen). 'premium' costs more — see docs/COSTS.md."
+ai_voice_provider,kokoro,"kokoro (free, self-host) | elevenlabs (paid)."
+ai_video_provider,veo_lite,"Only used when ai_visual_mode=premium. veo_lite | veo_standard | heygen."
+ai_clip_length_sec,40,"Target length for generated shorts."
+ai_max_per_run,2,"Max generated videos per scheduled run (cost control)."
+topics_min_in_queue,10,"Idea-engine tops the queue tab back up to this many unused topics."
+,,
+# ─── POSTING ─────────────────────────────────────────────────────────────────,,
+posting_provider,upload-post,"upload-post | blotato — must match the posting credential you set up."
+platforms,"youtube; tiktok; instagram","Semicolon-separated targets: youtube; tiktok; instagram; facebook; x; linkedin; threads; pinterest; bluesky."
+posts_per_day_per_platform,2,"Cadence cap per platform. Keep modest (anti-spam)."
+stagger_minutes,90,"Minimum spacing between posts to the same platform."
+default_hashtags,"#ai #tech #shorts","Appended to captions; prompt packs add niche-specific ones."
+affiliate_cta,,"Optional. Affiliate link / call-to-action added to descriptions. e.g. 'Free AI toolkit: https://...'"
+,,
+# ─── SCHEDULE ────────────────────────────────────────────────────────────────,,
+run_every_hours,6,"How often each engine's schedule trigger fires."
+timezone,UTC,"IANA timezone for scheduling, e.g. America/New_York."
+,,
+# ─── ALERTS ──────────────────────────────────────────────────────────────────,,
+alert_channel,telegram,"telegram | slack | none — where health alerts and quality-gate previews go."
+,,
+# ─── SHEET REFERENCE (do not edit; documents the other two tabs) ─────────────,,
+# queue tab headers: id | topic | niche | status | created_at | used_at,,
+# log tab headers:   id | engine | source_url | title | platforms | post_ids | status | created_at,,

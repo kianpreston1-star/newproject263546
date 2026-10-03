@@ -1,0 +1,28 @@
+{
+  "_comment": "Caption styling shared by the FFmpeg burn-in (scripts/burn_captions.sh) and the clip transform step. Values map to ASS/libass subtitle styling. Tweak to match brand-kit.md.",
+  "font": "Montserrat",
+  "font_size": 72,
+  "font_weight": "bold",
+  "primary_color": "#FFFFFF",
+  "outline_color": "#000000",
+  "outline_width": 4,
+  "shadow": 2,
+  "background_box": true,
+  "background_opacity": 0.35,
+  "position": "bottom_center",
+  "margin_vertical": 320,
+  "uppercase": false,
+  "max_chars_per_line": 24,
+  "max_lines": 2,
+  "word_highlight": {
+    "enabled": true,
+    "active_color": "#FFD400",
+    "_comment": "Karaoke-style per-word highlight as the voiceover speaks (boosts retention)."
+  },
+  "safe_zone": {
+    "_comment": "Keep captions out of platform UI zones (TikTok/Reels right-side buttons + bottom caption bar).",
+    "bottom_reserved_px": 320,
+    "right_reserved_px": 180,
+    "top_reserved_px": 220
+  }
+}

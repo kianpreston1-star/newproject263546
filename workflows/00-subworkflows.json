@@ -1,0 +1,633 @@
+{
+  "name": "00 - Shared (post, log, alert)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "0078a36947e74a1a9d6138a9",
+      "name": "When called by engine",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Expected input per item: videoUrl, title, transcript, engine, sourceType,\n// sourceAttribution (clip only), platforms (array), config (object).\nconst j = $json;\nreturn [{ json: {\n  videoUrl: j.videoUrl,\n  title: j.title || '',\n  transcript: j.transcript || '',\n  engine: j.engine || 'ai_generated',\n  sourceType: j.sourceType || (j.engine === 'clip' ? 'clip' : 'ai_generated'),\n  sourceAttribution: j.sourceAttribution || '',\n  platforms: Array.isArray(j.platforms) ? j.platforms : (j.config?._platforms || []),\n  config: j.config || {},\n}}];\n"
+      },
+      "id": "d7aa1fc3bed64b71a2448c89",
+      "name": "Normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [ { parts: [ { text: 'Return ONLY JSON. Write platform captions for: ' + $json.title + '\\nPlatforms: ' + ($json.platforms||[]).join(', ') + '\\nTranscript: ' + ($json.transcript||'').slice(0,1500) } ] } ] } }}",
+        "options": {}
+      },
+      "id": "daf852bd524e4faab5d8bf50",
+      "name": "Generate captions (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge LLM captions with attribution, AI disclosure, CTA and default hashtags.\nconst base = $('Normalize input').item.json;\nconst cfg = base.config || {};\nlet captions = {};\ntry {\n  const raw = $json?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  captions = JSON.parse(raw.replace(/```json|```/g, '').trim());\n} catch (e) { captions = {}; }\nconst extras = [];\nif (base.sourceType === 'clip' && base.sourceAttribution) extras.push(base.sourceAttribution);\nif (base.engine === 'ai_generated' && (cfg.ai_disclosure || 'ON') === 'ON') extras.push('Contains AI-generated content.');\nif (cfg.affiliate_cta) extras.push(cfg.affiliate_cta);\nif (cfg.default_hashtags) extras.push(cfg.default_hashtags);\nconst suffix = extras.length ? '\\n\\n' + extras.join('\\n') : '';\nreturn [{ json: { ...base, captions, suffix,\n  qualityGate: (cfg.quality_gate || 'ON'),\n  postingProvider: (cfg.posting_provider || 'upload-post'),\n  staggerMinutes: parseInt(cfg.stagger_minutes || '90', 10) } }];\n"
+      },
+      "id": "51376542bb3740a683498e56",
+      "name": "Assemble post text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.qualityGate }}",
+              "rightValue": "ON",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "94b51b6ca9d24388ba5422cf",
+      "name": "Quality gate ON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.config.telegram_chat_id || '' }}",
+        "message": "=Approve this post?\n\nTitle: {{ $json.title }}\nVideo: {{ $json.videoUrl }}",
+        "responseType": "approval",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "buttonApprovalText": "Post it",
+            "buttonDisapprovalText": "Skip"
+          }
+        }
+      },
+      "id": "786b904c15934352b9a7cf15",
+      "name": "Telegram approve?",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        760,
+        130
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.data?.approved ?? $json.approved ?? false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "a455a5c88eb545229c39943e",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        130
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "02f6f9e2cb45490f84d70139",
+      "name": "Skipped (rejected)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        40
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "090bde85c3bb494fb87db4ab",
+      "name": "Proceed to post",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "platforms",
+        "options": {}
+      },
+      "id": "6ba4922a11244cf699a043b6",
+      "name": "Split platforms",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "batchSize": 1
+      },
+      "id": "549341b0d6074983b7fc32f7",
+      "name": "For each platform",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the provider request for a single platform.\nconst row = $json;\nconst ctx = $('Proceed to post').item.json;\nconst platform = row.platforms || row.platform;\nconst cap = (ctx.captions && ctx.captions[platform]) || {};\nconst text = (cap.caption || cap.text || cap.description || ctx.title) + (ctx.suffix || '');\nconst provider = ctx.postingProvider;\nlet url, body;\nif (provider === 'blotato') {\n  url = 'https://backend.blotato.com/v2/posts';\n  body = { post: { target: { targetType: platform }, content: { text, media: [ctx.videoUrl] } } };\n} else { // upload-post\n  url = 'https://api.upload-post.com/api/upload';\n  body = { platform: [platform], title: cap.title || ctx.title, caption: text, video: ctx.videoUrl };\n}\nreturn [{ json: { platform, postUrl: url, postBody: body, title: ctx.title, videoUrl: ctx.videoUrl, engine: ctx.engine, sourceUrl: ctx.sourceUrl || ctx.videoUrl } }];\n"
+      },
+      "id": "381848cccd744ca58ee1641b",
+      "name": "Build post payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.postUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.postBody) }}",
+        "options": {}
+      },
+      "id": "9893ab8bff17417ea91a518a",
+      "name": "Post to platform",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error || $json.errorMessage || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "10717ecdf28c452eb4f10e3b",
+      "name": "Post ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $('Proceed to post').item.json.staggerMinutes }}",
+        "unit": "minutes"
+      },
+      "id": "2282fdb9ef08406aba175a4d",
+      "name": "Stagger wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2680,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('Proceed to post').item.json.config.telegram_chat_id || '' }}",
+        "text": "=\u26a0\ufe0f Post failed on {{ $json.platform }} for '{{ $json.title }}'. Check the workflow run.",
+        "additionalFields": {}
+      },
+      "id": "8bfd2ab049714ba08cb5dfba",
+      "name": "Health alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2680,
+        130
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// After the loop: write one summary row to the log tab.\nconst items = $('Post to platform').all();\nconst ctx = $('Proceed to post').item.json;\nconst ids = items.map(i => (i.json.id || i.json.postId || i.json.data?.id || 'posted')).join(',');\nconst platforms = items.map(i => i.json.platform || '').filter(Boolean).join(',');\nreturn [{ json: {\n  id: 'post_' + Date.now(),\n  engine: ctx.engine,\n  source_url: ctx.sourceUrl || ctx.videoUrl,\n  title: ctx.title,\n  platforms,\n  post_ids: ids,\n  status: 'posted',\n  created_at: new Date().toISOString(),\n} }];\n"
+      },
+      "id": "84ab9845be12411b9c043792",
+      "name": "Build log row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Proceed to post').item.json.config.sheet_id || 'SET_SHEET_ID' }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "f3217a3b31d6490687bce4f0",
+      "name": "Append to log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2200,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "SHARED SUBWORKFLOW\nEngines call this to: generate captions \u2192 quality gate (optional) \u2192 post to each platform (staggered) \u2192 log \u2192 alert on failure.\nSet credentials on the LLM, Telegram, Post, and Google Sheets nodes.",
+        "height": 170,
+        "width": 360,
+        "color": 5
+      },
+      "id": "a7448dc7df5244b581e42d9b",
+      "name": "Note c229f0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        70
+      ]
+    },
+    {
+      "parameters": {
+        "content": "LLM: default Gemini. Swap URL+auth for Claude if you prefer. Model names move \u2014 confirm the current one.",
+        "height": 140,
+        "width": 240,
+        "color": 6
+      },
+      "id": "66874aa5f7af44aa89f53141",
+      "name": "Note 786eb1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        270,
+        110
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POSTING: set your upload-post OR Blotato credential (Header Auth) here. Confirm the endpoint+fields in your provider's API docs; placeholders are wired from config.",
+        "height": 160,
+        "width": 260,
+        "color": 6
+      },
+      "id": "0e6199446884495ebc706d49",
+      "name": "Note 8cdd4e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2190,
+        90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "QUALITY GATE: ON (default) asks you in Telegram before posting. Set quality_gate=OFF in config for fully hands-off.",
+        "height": 130,
+        "width": 260,
+        "color": 3
+      },
+      "id": "938bbce7434f4119aab88e87",
+      "name": "Note 3f6a16",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        750,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "When called by engine": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "Generate captions (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate captions (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Assemble post text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble post text": {
+      "main": [
+        [
+          {
+            "node": "Quality gate ON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality gate ON?": {
+      "main": [
+        [
+          {
+            "node": "Telegram approve?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Proceed to post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram approve?": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Proceed to post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped (rejected)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Proceed to post": {
+      "main": [
+        [
+          {
+            "node": "Split platforms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split platforms": {
+      "main": [
+        [
+          {
+            "node": "For each platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For each platform": {
+      "main": [
+        [
+          {
+            "node": "Build log row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build post payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build post payload": {
+      "main": [
+        [
+          {
+            "node": "Post to platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to platform": {
+      "main": [
+        [
+          {
+            "node": "Post ok?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post ok?": {
+      "main": [
+        [
+          {
+            "node": "Stagger wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stagger wait": {
+      "main": [
+        [
+          {
+            "node": "For each platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health alert": {
+      "main": [
+        [
+          {
+            "node": "For each platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build log row": {
+      "main": [
+        [
+          {
+            "node": "Append to log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

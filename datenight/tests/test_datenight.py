@@ -282,3 +282,39 @@ def test_sounds_are_made_on_the_fly(tmp_path):
     path = dn.make_tone(tmp_path / "chime.wav", dn.SOUNDS["chime"])
     with dn.wave.open(str(path)) as w:
         assert w.getnframes() > 10000
+
+
+def test_several_photos_per_date_and_old_single_photo_entries(tmp_path):
+    old = {"name": "Walk", "date": "2026-01-01", "photo": "a.jpg"}
+    assert dn.entry_photos(old) == ["a.jpg"]
+    assert dn.normalise_entry(old) == {"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg"]}
+    assert "photos" not in dn.normalise_entry({"name": "Walk", "date": "2026-01-01", "photos": []})
+    path = tmp_path / "memories.json"
+    path.write_text('{"done": [{"name": "Walk", "date": "2026-01-01", "photo": "a.jpg"}]}')
+    assert dn.load_memories(path)["done"][0]["photos"] == ["a.jpg"]
+
+
+def test_same_date_on_two_devices_keeps_every_photo():
+    laptop = {"favourites": [], "done": [{"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg"]}], "my_ideas": []}
+    phone = {"done": [{"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg", "b.jpg"]}]}
+    merged, added = dn.merge_memories(laptop, phone)
+    assert added == 1 and merged["done"] == [{"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg", "b.jpg"]}]
+    assert dn.merge_memories(merged, phone)[1] == 0
+
+
+def test_photo_files_are_only_deleted_when_unused(tmp_path):
+    (tmp_path / "a.jpg").write_bytes(b"x")
+    memories = {"done": [{"name": "Walk", "photos": ["a.jpg"]}]}
+    dn.forget_photo(memories, "a.jpg", tmp_path)
+    assert (tmp_path / "a.jpg").exists()
+    memories["done"][0]["photos"] = []
+    dn.forget_photo(memories, "a.jpg", tmp_path)
+    assert not (tmp_path / "a.jpg").exists()
+
+
+def test_year_review_shows_every_photo(tmp_path):
+    for name in ("a.png", "b.png", "c.png"):
+        (tmp_path / name).write_bytes(b"\x89PNG")
+    page = dn.year_review_html([{"name": "Walk", "date": "2026-05-01", "photos": ["a.png", "b.png", "c.png"]}],
+                               2026, photos_dir=tmp_path)
+    assert page.count("data:image/png;base64") == 3 and 'class="more"' in page

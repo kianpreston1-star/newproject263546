@@ -21,21 +21,24 @@ Then press **Pick our date night** (or Enter/Space). A heart spins round the dis
 
 **Your relationship**
 - **Settings:** your names, your anniversary and both birthdays. The top of the window counts down to the next one (for example "14 days until our 2nd anniversary"), and in the two weeks before, special dates (fancy dinners, spas, shows) come up more often and are marked "Perfect for our anniversary".
-- **We did it!** logs a date with a 1–5 heart rating, a note and a **photo**.
-- **Memories:** every date you've logged, with photos, stats, dates this month, your **streak** (weeks in a row with a date) and **badges** at 1, 5, 10, 25, 50, 75 and 100 dates. Each new badge gets a burst of hearts.
+- **Date diary (in Memories):** a log of every date you've done, newest first, with hearts, notes and photos.
+  - **+ Log a date** adds any date you've been on, including past ones and ones the app didn't pick. You set what you did, where, when, roughly what you spent, how it was (1–5 hearts), a note, the vibe and **as many photos as you like**.
+  - **We did it!** on a picked date opens the same form, already filled in.
+  - Each date has **Add photos** (to add more later), **Edit** and **Delete**, and every photo has a **×** to remove it. On the phone, tap a photo to see it full size.
+- **Memories** also shows your stats, dates this month, your **streak** (weeks in a row with a date) and **badges** at 1, 5, 10, 25, 50, 75 and 100 dates. Each new badge gets a burst of hearts.
 - **Year in review:** a pink "Our 2026 in dates" page with your stats, best date and photos. It opens in the browser, so you can print it or save it as a PDF. It would make a nice anniversary present.
 
 **Practical**
 - **Open?** looks up today's opening hours on OpenStreetMap (free). If the place isn't listed there, it opens a Google search for its opening times instead.
 - **Copy for her** copies the plan with a Google Maps link for WhatsApp. **Calendar** saves an event with a reminder.
 - **♪ On/Off** turns the little sounds on or off.
-- **Back up / Restore** (in Memories) saves everything, photos included, into one file. Keep it on a USB stick or Google Drive. Restoring adds what's missing and never deletes anything, so you can restore the same file twice safely.
+- **Back up / Restore** (in Memories) saves everything, photos included, into one file. Keep it on a USB stick or Google Drive. Restoring adds what's missing and never deletes anything, so you can restore the same file twice safely. If the same date was logged on both devices, you keep the photos from both.
 
 Your memories, photos, favourites, own ideas and settings live in `~/.config/datenight`. Updating or uninstalling the app keeps them.
 
 ## On your phones
 
-The `web/` folder is a phone version with the same ideas and almost everything above: the four questions, seasons, weather, both of us, surprise mode, favourites, We did it! with photos, memories, streaks, badges, year in review, opening hours, sounds, sharing, calendar, and backup and restore. Sharing uses the phone's own Share button.
+The `web/` folder is a phone version with the same ideas and almost everything above: the four questions, seasons, weather, both of us, surprise mode, favourites, the date diary with photos, memories, streaks, badges, year in review, opening hours, sounds, sharing, calendar, and backup and restore. Sharing uses the phone's own Share button.
 
 1. Put it online for free with GitHub Pages. On GitHub, open this repository, go to **Settings → Pages**, choose **Deploy from a branch**, pick the `claude/determined-bardeen-vvrlm3` branch and the **/ (root)** folder, then click **Save**.
 2. After about a minute, open **https://kianpreston1-star.github.io/newproject263546/datenight/web/** on each phone.

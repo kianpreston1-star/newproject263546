@@ -606,14 +606,45 @@ class App:
                               padx=14, pady=6, cursor="hand2", highlightthickness=0)
 
     def open_did_it(self):
-        tk, idea = self.tk, self.current
-        win = self._dialog("We did it!", 420, 350)
-        tk.Label(win, text=idea["name"], font=(FONT, 12, "bold"), fg=INK, bg=PANEL, wraplength=370,
-                 justify="left").pack(anchor="w", padx=22)
-        tk.Label(win, text="How was it?", font=(FONT, 10), fg=MUTED, bg=PANEL).pack(anchor="w", padx=22, pady=(10, 0))
-        rating = tk.IntVar(value=5)
-        hearts = tk.Canvas(win, width=230, height=44, bg=PANEL, highlightthickness=0, cursor="hand2")
-        hearts.pack(anchor="w", padx=18)
+        self.open_log(idea=self.current)
+
+    def _pick_photos(self, parent) -> list[Path]:
+        from tkinter import filedialog
+        pictures = Path.home() / "Pictures"
+        paths = filedialog.askopenfilenames(parent=parent, title="Pick photos from the date",
+                                            initialdir=str(pictures if pictures.is_dir() else Path.home()),
+                                            filetypes=[("Photos", "*.jpg *.jpeg *.png *.gif *.webp *.JPG *.JPEG *.PNG"),
+                                                       ("All files", "*")])
+        return [Path(p) for p in paths]
+
+    def open_log(self, idea=None, index=None, after=None):
+        """One dialog for "We did it!" (idea given), logging any date (nothing given) and editing (index given)."""
+        tk = self.tk
+        entry = dict(self.memories["done"][index]) if index is not None else {}
+        if idea:
+            entry = {"name": idea["name"], "where": idea["where"], "cost": idea["cost"], "vibes": list(idea["vibes"])}
+        title = "Edit this date" if index is not None else "We did it!" if idea else "Log a date"
+        win = self._dialog(title, 460, 560)
+        form = tk.Frame(win, bg=PANEL)
+        form.pack(fill="both", expand=True, padx=22)
+        form.columnconfigure(1, weight=1)
+        style = dict(font=(FONT, 11), relief="flat", bg="white", fg=INK, highlightthickness=1,
+                     highlightbackground=PANEL_EDGE, highlightcolor=HOT, insertbackground=DEEP)
+        label = dict(font=(FONT, 10, "bold"), fg=INK, bg=PANEL, anchor="w")
+        fields = {}
+        when = date.fromisoformat(entry["date"]) if entry.get("date") else date.today()
+        for row, (key, text, value) in enumerate([
+                ("name", "What did you do?", entry.get("name", "")), ("where", "Where", entry.get("where", "")),
+                ("date", "When (DD/MM/YYYY)", when.strftime("%d/%m/%Y")), ("cost", "Spent (£, roughly)",
+                                                                             str(entry.get("cost", 0)))]):
+            tk.Label(form, text=text, **label).grid(row=row, column=0, sticky="w", pady=5)
+            fields[key] = tk.Entry(form, **style)
+            fields[key].insert(0, value)
+            fields[key].grid(row=row, column=1, sticky="ew", padx=(10, 0), ipady=3)
+        tk.Label(form, text="How was it?", **label).grid(row=4, column=0, sticky="w", pady=(8, 0))
+        rating = tk.IntVar(value=int(entry.get("rating", 5)))
+        hearts = tk.Canvas(form, width=230, height=44, bg=PANEL, highlightthickness=0, cursor="hand2")
+        hearts.grid(row=4, column=1, sticky="w", pady=(8, 0))
 
         def draw(*_):
             hearts.delete("all")
@@ -622,72 +653,148 @@ class App:
                                    fill=DEEP if k < rating.get() else DIM)
         hearts.bind("<Button-1>", lambda e: (rating.set(min(5, max(1, e.x // 44 + 1))), draw()))
         draw()
-        tk.Label(win, text="A little note to remember it by (optional)", font=(FONT, 10), fg=MUTED,
-                 bg=PANEL).pack(anchor="w", padx=22, pady=(8, 2))
-        note = tk.Entry(win, font=(FONT, 11), relief="flat", bg="white", fg=INK, highlightthickness=1,
-                        highlightbackground=PANEL_EDGE, highlightcolor=HOT, insertbackground=DEEP)
-        note.pack(fill="x", padx=22, ipady=4)
-        note.focus_set()
-        photo: list = []
-        photo_row = tk.Frame(win, bg=PANEL)
-        photo_row.pack(fill="x", padx=22, pady=(10, 0))
-        photo_label = tk.Label(photo_row, text="No photo yet", font=(FONT, 9), fg=MUTED, bg=PANEL)
+        tk.Label(form, text="A little note to remember it by", **label).grid(row=5, column=0, columnspan=2,
+                                                                             sticky="w", pady=(8, 2))
+        note = tk.Text(form, height=3, wrap="word", **style)
+        note.insert("1.0", entry.get("note", ""))
+        note.grid(row=6, column=0, columnspan=2, sticky="ew")
+        tk.Label(form, text="Vibe", **label).grid(row=7, column=0, sticky="w", pady=(8, 0))
+        checks = tk.Frame(form, bg=PANEL)
+        checks.grid(row=7, column=1, sticky="w", pady=(8, 0), padx=(6, 0))
+        vibe_vars = {}
+        for v in VIBES:
+            vibe_vars[v] = tk.BooleanVar(value=v in entry.get("vibes", []))
+            tk.Checkbutton(checks, text=v.capitalize(), variable=vibe_vars[v], font=(FONT, 10), bg=PANEL, fg=INK,
+                           activebackground=PANEL, selectcolor="white", highlightthickness=0).pack(side="left")
+        chosen: list[Path] = []
+        have = len(entry_photos(entry))
+        photo_row = tk.Frame(form, bg=PANEL)
+        photo_row.grid(row=8, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        photo_label = tk.Label(photo_row, font=(FONT, 9), fg=MUTED, bg=PANEL)
 
-        def choose_photo():
-            from tkinter import filedialog
-            path = filedialog.askopenfilename(parent=win, title="Pick a photo from the date",
-                                              initialdir=str(Path.home() / "Pictures") if (Path.home() / "Pictures").is_dir() else str(Path.home()),
-                                              filetypes=[("Photos", "*.jpg *.jpeg *.png *.gif *.JPG *.JPEG *.PNG"),
-                                                         ("All files", "*")])
-            if path:
-                photo[:] = [Path(path)]
-                photo_label.config(text=Path(path).name)
-        self._button(photo_row, "Add a photo", choose_photo, primary=False).pack(side="left")
+        def show_count():
+            parts = [f"{have} photo{'s' if have != 1 else ''} already"] if have else []
+            if chosen:
+                parts.append(f"{len(chosen)} new photo{'s' if len(chosen) != 1 else ''} to add")
+            photo_label.config(text=", ".join(parts) or "No photos yet")
+
+        def add_photos():
+            chosen.extend(p for p in self._pick_photos(win) if p not in chosen)
+            show_count()
+        self._button(photo_row, "Add photos", add_photos, primary=False).pack(side="left")
         photo_label.pack(side="left", padx=10)
+        show_count()
+        error = tk.Label(form, text="", font=(FONT, 9), fg=DEEP, bg=PANEL)
+        error.grid(row=9, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        fields["name"].focus_set()
 
         def save(*_):
-            today = date.today().isoformat()
-            entry = {"name": idea["name"], "where": idea["where"], "date": today, "rating": rating.get(),
-                     "note": note.get().strip(), "cost": idea["cost"], "vibes": list(idea["vibes"])}
-            if photo:
-                saved_name = save_photo(photo[0], today, idea["name"])
+            name = fields["name"].get().strip()
+            day = parse_uk_date(fields["date"].get())
+            try:
+                cost = max(0, int(float(fields["cost"].get().strip().lstrip("£") or 0)))
+            except ValueError:
+                cost = None
+            if not name:
+                return error.config(text="Say what you did.")
+            if not day or day > date.today():
+                return error.config(text="Use a date like 14/02/2026 that isn't in the future.")
+            if cost is None:
+                return error.config(text="Spent should be a number of pounds.")
+            new = dict(entry, name=name, where=fields["where"].get().strip(), date=day.isoformat(),
+                       rating=rating.get(), note=note.get("1.0", "end").strip(), cost=cost,
+                       vibes=[v for v in VIBES if vibe_vars[v].get()])
+            photos = entry_photos(entry)
+            for path in chosen:
+                saved_name = save_photo(path, new["date"], name)
                 if saved_name:
-                    entry["photo"] = saved_name
-            self.memories["done"].append(entry)
+                    photos.append(saved_name)
+                else:
+                    self.toast(f"Couldn't copy {path.name}")
+            new = normalise_entry(dict(new, photos=photos))
+            done = self.memories["done"]
+            if index is None:
+                done.append(new)
+            else:
+                done[index] = new
+            done.sort(key=lambda d: d.get("date", ""))
             self._store()
             win.destroy()
-            self._show(idea, new_twist=False, reveal=True)
-            milestone = new_milestone(len(self.memories["done"]))
+            if idea and self.current is idea:
+                self._show(idea, new_twist=False, reveal=True)
+            if after:
+                after()
+            milestone = new_milestone(len(done)) if index is None else None
             if milestone:
                 self.beep("yay")
                 for k in range(3):
                     self.root.after(k * 250, lambda: self._burst(W / 2 + random.uniform(-200, 200),
                                                                  H / 2 + random.uniform(-100, 100)))
-                count = len(self.memories["done"])
-                self.toast(f"{HEART} New badge: {milestone}! {count} date{'s' if count != 1 else ''} logged {HEART}")
+                self.toast(f"{HEART} New badge: {milestone}! {len(done)} date{'s' if len(done) != 1 else ''} logged {HEART}")
             else:
-                self.toast(f"Saved to your memories {HEART}")
-        note.bind("<Return>", save)
+                self.toast(f"Saved to your memories {HEART}" if index is None else f"Updated {HEART}")
         row = tk.Frame(win, bg=PANEL)
         row.pack(fill="x", padx=22, pady=16)
         self._button(row, f"Save memory {HEART}", save).pack(side="right")
         self._button(row, "Cancel", win.destroy, primary=False).pack(side="right", padx=8)
 
-    def open_memories(self):
+    def open_memories(self, scroll: float = 0.0):
         tk = self.tk
-        win = self._dialog(f"Our memories {HEART}", 600, 620)
+        win = self._dialog(f"Our memories {HEART}", 620, 640)
         done = self.memories["done"]
         today = date.today()
+
+        def refresh():
+            position = text.yview()[0]
+            win.destroy()
+            self.open_memories(position)
+
+        def add_photos(i):
+            paths = self._pick_photos(win)
+            if not paths:
+                return
+            entry = done[i]
+            photos = entry_photos(entry)
+            for path in paths:
+                saved_name = save_photo(path, entry.get("date", today.isoformat()), entry["name"])
+                if saved_name:
+                    photos.append(saved_name)
+            done[i] = normalise_entry(dict(entry, photos=photos))
+            self._store()
+            refresh()
+            self.toast(f"Added {len(paths)} photo{'s' if len(paths) != 1 else ''} {HEART}")
+
+        def remove_photo(i, name):
+            from tkinter import messagebox
+            if not messagebox.askyesno("Remove photo", "Remove this photo from the date?", parent=win):
+                return
+            done[i] = normalise_entry(dict(done[i], photos=[p for p in entry_photos(done[i]) if p != name]))
+            self._store()
+            forget_photo(self.memories, name)
+            refresh()
+
+        def delete(i):
+            from tkinter import messagebox
+            if not messagebox.askyesno("Delete date", f"Delete “{done[i]['name']}” and its photos?",
+                                       parent=win):
+                return
+            gone = done.pop(i)
+            self._store()
+            for name in entry_photos(gone):
+                forget_photo(self.memories, name)
+            refresh()
+            self.toast("Deleted")
+
         tk.Label(win, text=memory_stats(done), font=(FONT, 10), fg=MUTED, bg=PANEL,
-                 wraplength=550, justify="left").pack(anchor="w", padx=22)
-        streak = date_streak(done, today)
-        tk.Label(win, text=f"This month: {dates_this_month(done, today)} date{'s' if dates_this_month(done, today) != 1 else ''}"
+                 wraplength=570, justify="left").pack(anchor="w", padx=22)
+        streak, month_count = date_streak(done, today), dates_this_month(done, today)
+        tk.Label(win, text=f"This month: {month_count} date{'s' if month_count != 1 else ''}"
                            f"  {HEART}  Streak: {streak} week{'s' if streak != 1 else ''} in a row",
                  font=(FONT, 10, "bold"), fg=DEEP, bg=PANEL).pack(anchor="w", padx=22, pady=(4, 0))
         frame = tk.Frame(win, bg=PANEL)
         frame.pack(fill="both", expand=True, padx=22, pady=10)
         text = tk.Text(frame, font=(FONT, 11), bg="white", fg=INK, relief="flat", wrap="word", padx=12, pady=10,
-                       highlightthickness=1, highlightbackground=PANEL_EDGE, cursor="arrow")
+                       highlightthickness=1, highlightbackground=PANEL_EDGE, cursor="arrow", height=8)
         bar = tk.Scrollbar(frame, command=text.yview, troughcolor=BLUSH, bg=TRACK, activebackground=HOT,
                            relief="flat", bd=0)
         text.config(yscrollcommand=bar.set)
@@ -697,38 +804,68 @@ class App:
         text.tag_config("hearts", font=(HEART_FONT, 11), foreground=DEEP)
         text.tag_config("muted", foreground=MUTED, font=(FONT, 9))
         text.tag_config("b", font=(FONT, 11, "bold"))
-        text.tag_config("note", font=(FONT, 10, "italic"), foreground=DEEPER, spacing3=8)
+        text.tag_config("note", font=(FONT, 10, "italic"), foreground=DEEPER)
+        text.tag_config("gap", spacing3=14)
+
+        def small(label, command, primary=False):
+            return tk.Button(text, text=label, command=command, font=(FONT, 8, "bold"), relief="flat", bd=0,
+                             bg=DEEP if primary else BLUSH, fg="white" if primary else DEEP,
+                             activebackground=HOT, activeforeground="white", padx=8, pady=2, cursor="hand2",
+                             highlightthickness=0)
 
         earned = badges(len(done))
-        upcoming = next((f"{n - len(done)} more for \u201c{name}\u201d" for n, name in MILESTONES.items()
+        upcoming = next((f"{n - len(done)} more for “{name}”" for n, name in MILESTONES.items()
                          if n > len(done)), "every badge earned!")
         text.insert("end", "Badges\n", "h")
         text.insert("end", ("  ".join(f"{HEART} {b}" for b in earned) or "None yet") + "\n", "b")
         text.insert("end", f"Next: {upcoming}\n\n", "muted")
-        text.insert("end", "Dates we've done\n", "h")
+        text.insert("end", "Dates we've done   ", "h")
+        text.window_create("end", window=small(f"+ Log a date {HEART}", lambda: self.open_log(after=refresh),
+                                               primary=True))
+        text.insert("end", "\n", "h")
         self._thumbs = []
-        if not self.memories["done"]:
-            text.insert("end", "Nothing yet. After your next date, press \"We did it!\".\n\n", "muted")
-        for d in reversed(self.memories["done"]):
+        if not done:
+            text.insert("end", "Nothing yet. Press “+ Log a date” to add one you've been on, or "
+                               "“We did it!” after a pick.\n\n", "muted")
+        for i in reversed(range(len(done))):
+            d = done[i]
             r = int(d.get("rating", 5))
             try:
                 when = date.fromisoformat(d["date"]).strftime("%a %d %b %Y")
             except (KeyError, ValueError):
                 when = ""
-            text.insert("end", HEART * r + "\u2661" * (5 - r), "hearts")
+            text.insert("end", HEART * r + "♡" * (5 - r), "hearts")
             text.insert("end", f"   {when}\n", "muted")
             text.insert("end", f"{d['name']}", "b")
-            text.insert("end", f"  ({d.get('where', '')})\n")
-            text.insert("end", f"\u201c{d['note']}\u201d\n" if d.get("note") else "\n", "note")
-            thumb = self._thumbnail(PHOTOS_DIR / d["photo"]) if d.get("photo") else None
-            if thumb:
-                self._thumbs.append(thumb)
-                text.image_create("end", image=thumb, padx=2, pady=4)
-                text.insert("end", "\n\n")
+            text.insert("end", f"  ({d['where']})\n" if d.get("where") else "\n")
+            if d.get("note"):
+                text.insert("end", f"“{d['note']}”\n", "note")
+            photos = entry_photos(d)
+            hidden = 0
+            for name in photos:
+                thumb = self._thumbnail(PHOTOS_DIR / name)
+                if thumb:
+                    self._thumbs.append(thumb)
+                    text.image_create("end", image=thumb, padx=2, pady=4)
+                    text.window_create("end", window=small("×", lambda i=i, n=name: remove_photo(i, n)))
+                    text.insert("end", "  ")
+                else:
+                    hidden += 1
+            if photos:
+                text.insert("end", "\n")
+            if hidden:
+                text.insert("end", f"{hidden} photo{'s' if hidden != 1 else ''} saved (install python3-pil.imagetk "
+                                   "to see JPEGs here; they show in the year in review)\n", "muted")
+            for label, command in ((f"Add photos ({len(photos)})" if photos else "Add photos",
+                                    lambda i=i: add_photos(i)),
+                                   ("Edit", lambda i=i: self.open_log(index=i, after=refresh)),
+                                   ("Delete", lambda i=i: delete(i))):
+                text.window_create("end", window=small(label, command), padx=2)
+            text.insert("end", "\n", "gap")
 
         by_name = {i["name"]: i for i in self.ideas}
         favs = [by_name[n] for n in self.memories["favourites"] if n in by_name]
-        text.insert("end", "Our favourites\n", "h")
+        text.insert("end", "\nOur favourites\n", "h")
         if not favs:
             text.insert("end", f"None yet. Press \"{HEART} Save\" on an idea you like.\n\n", "muted")
         for i in favs:
@@ -742,6 +879,8 @@ class App:
                 text.insert("end", f"{HEART} ", "hearts")
                 text.insert("end", f"{i['name']}\n")
         text.config(state="disabled")
+        if scroll:
+            win.after(50, lambda: text.yview_moveto(scroll))
 
         tools = tk.Frame(win, bg=PANEL)
         tools.pack(fill="x", padx=22, pady=(0, 8))

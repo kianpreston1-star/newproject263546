@@ -109,7 +109,15 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
 .mem { border-top: 1px solid var(--dim); padding: 10px 0; }
 .mem .hearts { color: var(--deep); }
 .mem .hearts i { color: var(--off); font-style: normal; }
-.mem img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 14px; margin-top: 6px; }
+.mem .photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; margin-top: 8px; }
+.mem .photo { position: relative; }
+.mem .photo img { width: 100%; height: 110px; object-fit: cover; border-radius: 12px; display: block; cursor: zoom-in; }
+.mem .photo button { position: absolute; top: 4px; right: 4px; border: 0; border-radius: 999px; width: 26px; height: 26px;
+  background: rgba(224,17,95,.85); color: #fff; font-weight: 800; cursor: pointer; }
+.mem .tools { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.mem .tools .btn { padding: 6px 10px; font-size: 12px; }
+#viewer { padding: 0; background: transparent; box-shadow: none; width: auto; max-width: 96vw; }
+#viewer img { max-width: 96vw; max-height: 86vh; border-radius: 18px; display: block; }
 .badge { display: inline-block; background: var(--blush); color: var(--deep); border-radius: 999px; padding: 4px 10px; margin: 2px; font-size: 12px; font-weight: 700; }
 #toast {
   position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(150%);
@@ -177,17 +185,27 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
 
 <div id="toast" role="status" aria-live="polite"></div>
 
-<dialog id="dlg-did">
-  <h2>We did it!</h2>
-  <p id="did-name"><b></b></p>
-  <p class="muted">How was it?</p>
+<dialog id="dlg-log">
+  <h2 id="log-title">We did it!</h2>
+  <label for="log-name">What did you do?</label><input type="text" id="log-name">
+  <label for="log-where">Where</label><input type="text" id="log-where">
+  <div class="sides">
+    <div><label for="log-date">When</label><input type="date" id="log-date"></div>
+    <div><label for="log-cost">Spent (£, roughly)</label><input type="number" id="log-cost" min="0" step="1"></div>
+  </div>
+  <label>How was it?</label>
   <div class="rating" id="rating"></div>
-  <label for="did-note">A little note to remember it by (optional)</label>
-  <input type="text" id="did-note">
-  <label for="did-photo">A photo (optional)</label>
-  <input type="file" id="did-photo" accept="image/*">
-  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="did-save">Save memory &#9829;</button></div>
+  <label for="log-note">A little note to remember it by</label>
+  <textarea id="log-note" rows="3"></textarea>
+  <label>Vibe</label>
+  <div class="checks" id="log-vibes"></div>
+  <label for="log-photos">Photos</label>
+  <p class="muted" id="log-have"></p>
+  <input type="file" id="log-photos" accept="image/*" multiple>
+  <div class="err" id="log-err"></div>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="log-save">Save memory &#9829;</button></div>
 </dialog>
+<input type="file" id="add-photos-input" accept="image/*" multiple hidden>
 
 <dialog id="dlg-memories">
   <h2>Our memories &#9829;</h2>
@@ -195,6 +213,10 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
   <p id="mem-streak" style="color:var(--deep);font-weight:700;font-size:14px"></p>
   <div id="mem-badges"></div>
   <p class="muted" id="mem-next"></p>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+    <h3 style="color:var(--deep);margin:0">Dates we've done</h3>
+    <button class="btn primary" id="mem-log">+ Log a date &#9829;</button>
+  </div>
   <div id="mem-list"></div>
   <h3 style="color:var(--deep)">Our favourites</h3>
   <div id="mem-favs"></div>
@@ -241,6 +263,8 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
   <div class="err" id="both-err"></div>
   <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="both-go">Find a date we both love &#9829;</button></div>
 </dialog>
+
+<dialog id="viewer"><img id="viewer-img" alt=""></dialog>
 
 <dialog id="dlg-cal">
   <h2>Add to calendar</h2>
@@ -522,16 +546,25 @@ const photoDB = {
     });
   },
   async put(name, b64) { const db = await this.open(); return new Promise((ok, bad) => { const t = db.transaction("photos", "readwrite"); t.objectStore("photos").put(b64, name); t.oncomplete = ok; t.onerror = () => bad(t.error); }); },
+  async del(name) { const db = await this.open(); return new Promise((ok) => { const t = db.transaction("photos", "readwrite"); t.objectStore("photos").delete(name); t.oncomplete = ok; t.onerror = ok; }); },
   async get(name) { const db = await this.open(); return new Promise((ok) => { const r = db.transaction("photos").objectStore("photos").get(name); r.onsuccess = () => ok(r.result || null); r.onerror = () => ok(null); }); },
 };
 const mimeFor = (name) => /\.png$/i.test(name) ? "image/png" : /\.gif$/i.test(name) ? "image/gif" : "image/jpeg";
-function loadMemories() { const m = store.get("memories", {}); return { favourites: m.favourites || [], done: m.done || [], my_ideas: m.my_ideas || [] }; }
+function entryPhotos(d) { const p = [...(d.photos || [])]; if (d.photo && !p.includes(d.photo)) p.unshift(d.photo); return p; }
+function normaliseEntry(d) { const e = { ...d }, p = entryPhotos(e); delete e.photo; if (p.length) e.photos = p; else delete e.photos; return e; }
+function loadMemories() { const m = store.get("memories", {}); return { favourites: m.favourites || [], done: (m.done || []).map(normaliseEntry), my_ideas: m.my_ideas || [] }; }
 function mergeMemories(mine, theirs) {
   const merged = { favourites: [...mine.favourites], done: [...mine.done], my_ideas: [...mine.my_ideas] };
   let added = 0;
   for (const f of theirs.favourites || []) if (!merged.favourites.includes(f)) { merged.favourites.push(f); added++; }
-  const seen = new Set(merged.done.map((d) => d.name + "|" + d.date));
-  for (const d of theirs.done || []) if (!seen.has(d.name + "|" + d.date)) { merged.done.push(d); seen.add(d.name + "|" + d.date); added++; }
+  merged.done = merged.done.map(normaliseEntry);
+  const byKey = new Map(merged.done.map((d) => [d.name + "|" + d.date, d]));
+  for (const raw of theirs.done || []) {
+    const d = normaliseEntry(raw), key = d.name + "|" + d.date, here = byKey.get(key);
+    if (!here) { merged.done.push(d); byKey.set(key, d); added++; continue; }
+    const extra = entryPhotos(d).filter((p) => !entryPhotos(here).includes(p));  // same date on both devices: keep every photo
+    if (extra.length) { here.photos = [...entryPhotos(here), ...extra]; added += extra.length; }
+  }
   merged.done.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const names = new Set(merged.my_ideas.map((i) => i.name));
   for (const i of theirs.my_ideas || []) if (!names.has(i.name)) { merged.my_ideas.push(i); names.add(i.name); added++; }
@@ -812,32 +845,74 @@ function refreshSound() { $("toggle-sound").textContent = state.sound ? "\u266a 
 $("toggle-sound").onclick = () => { state.sound = !state.sound; refreshSound(); saveSettings(); beep("chime"); toast(state.sound ? "Sound on" : "Sound off"); };
 document.querySelectorAll("[data-close]").forEach((b) => b.onclick = () => b.closest("dialog").close());
 
-// We did it
+// The date diary: "We did it!", logging any date, and editing one
 
-let rating = 5;
+let rating = 5, logTarget = null;
 function drawRating() { $("rating").innerHTML = [1, 2, 3, 4, 5].map((k) => `<span data-r="${k}" class="${k <= rating ? "on" : ""}">${HEART}</span>`).join(""); }
 $("rating").onclick = (e) => { const r = e.target.dataset.r; if (r) { rating = +r; drawRating(); } };
-$("did").onclick = () => { rating = 5; drawRating(); $("did-name").querySelector("b").textContent = state.current.name; $("did-note").value = ""; $("did-photo").value = ""; $("dlg-did").showModal(); };
-$("did-save").onclick = async () => {
-  const i = state.current, today = todayISO();
-  const entry = { name: i.name, where: i.where, date: today, rating, note: $("did-note").value.trim(), cost: i.cost, vibes: [...i.vibes] };
-  const file = $("did-photo").files[0];
-  if (file) {
+$("log-vibes").innerHTML = VIBES.map((v) => `<label><input type="checkbox" value="${v}"> ${v[0].toUpperCase() + v.slice(1)}</label>`).join("");
+function openLog({ idea = null, index = null } = {}) {
+  const entry = index !== null ? state.memories.done[index] : idea ? { name: idea.name, where: idea.where, cost: idea.cost, vibes: idea.vibes } : {};
+  logTarget = { idea, index };
+  $("log-title").textContent = index !== null ? "Edit this date" : idea ? "We did it!" : "Log a date";
+  $("log-name").value = entry.name || ""; $("log-where").value = entry.where || "";
+  $("log-date").value = entry.date || todayISO(); $("log-date").max = todayISO();
+  $("log-cost").value = entry.cost ?? 0; $("log-note").value = entry.note || "";
+  $("log-vibes").querySelectorAll("input").forEach((c) => c.checked = (entry.vibes || []).includes(c.value));
+  const have = entryPhotos(entry).length;
+  $("log-have").textContent = have ? `${have} photo${have !== 1 ? "s" : ""} already. Pick more to add them.` : "Pick as many as you like.";
+  $("log-photos").value = ""; $("log-err").textContent = "";
+  rating = entry.rating || 5; drawRating();
+  $("dlg-log").showModal();
+}
+async function storePhotos(files, day, name) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "date";
+  const names = [];
+  for (const file of files) {
     try {
-      const slug = i.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "date";
-      let name = `${today}-${slug}.jpg`, k = 2;
-      while (await photoDB.get(name)) name = `${today}-${slug}-${k++}.jpg`;
-      await photoDB.put(name, await resizePhoto(file));
-      entry.photo = name;
-    } catch { toast("Couldn't save the photo, but the memory is saved"); }
+      let n = `${day}-${slug}.jpg`, k = 2;
+      while (await photoDB.get(n)) n = `${day}-${slug}-${k++}.jpg`;
+      await photoDB.put(n, await resizePhoto(file));
+      names.push(n);
+    } catch { toast(`Couldn't save ${file.name}`); }
   }
-  state.memories.done.push(entry); saveMemories();
-  $("dlg-did").close();
-  show(i, false, true);
-  const count = state.memories.done.length, badge = MILESTONES[count];
+  return names;
+}
+async function forgetPhoto(name) { if (!state.memories.done.some((d) => entryPhotos(d).includes(name))) await photoDB.del(name); }
+$("did").onclick = () => openLog({ idea: state.current });
+$("log-save").onclick = async () => {
+  const { idea, index } = logTarget, err = $("log-err");
+  const name = $("log-name").value.trim(), day = $("log-date").value, cost = Math.max(0, Math.round(+$("log-cost").value || 0));
+  if (!name) return err.textContent = "Say what you did.";
+  if (!parseISO(day) || day > todayISO()) return err.textContent = "Pick a date that isn't in the future.";
+  $("log-save").disabled = true;
+  const old = index !== null ? state.memories.done[index] : {};
+  const added = await storePhotos([...$("log-photos").files], day, name);
+  const entry = normaliseEntry({ ...old, name, where: $("log-where").value.trim(), date: day, rating, note: $("log-note").value.trim(), cost,
+    vibes: [...$("log-vibes").querySelectorAll("input:checked")].map((c) => c.value), photos: [...entryPhotos(old), ...added] });
+  const done = state.memories.done;
+  if (index !== null) done[index] = entry; else done.push(entry);
+  done.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  saveMemories();
+  $("log-save").disabled = false;
+  $("dlg-log").close();
+  if (idea && state.current === idea) show(idea, false, true);
+  if ($("dlg-memories").open) await openMemories();
+  const count = done.length, badge = index === null ? MILESTONES[count] : null;
   if (badge) { beep("yay"); for (let k = 0; k < 3; k++) setTimeout(() => burst(innerWidth * (.2 + Math.random() * .6), innerHeight * (.3 + Math.random() * .4)), k * 250); toast(`${HEART} New badge: ${badge}! ${count} date${count !== 1 ? "s" : ""} logged ${HEART}`); }
-  else toast(`Saved to your memories ${HEART}`);
+  else toast(index === null ? `Saved to your memories ${HEART}` : `Updated ${HEART}`);
 };
+let addPhotosTo = null;
+$("add-photos-input").onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = "";
+  const d = state.memories.done[addPhotosTo];
+  if (!files.length || !d) return;
+  const added = await storePhotos(files, d.date || todayISO(), d.name);
+  state.memories.done[addPhotosTo] = normaliseEntry({ ...d, photos: [...entryPhotos(d), ...added] });
+  saveMemories(); await openMemories();
+  toast(`Added ${added.length} photo${added.length !== 1 ? "s" : ""} ${HEART}`);
+};
+$("viewer").onclick = () => $("viewer").close();
 
 // Memories
 
@@ -849,14 +924,38 @@ async function openMemories() {
   const next = Object.entries(MILESTONES).find(([n]) => +n > done.length);
   $("mem-next").textContent = next ? `Next: ${+next[0] - done.length} more for \u201c${next[1]}\u201d` : "Every badge earned!";
   const list = $("mem-list");
-  list.innerHTML = done.length ? "" : `<p class="muted">Nothing yet. After your next date, tap "We did it!".</p>`;
-  for (const d of [...done].reverse()) {
-    const r = Math.max(0, Math.min(5, d.rating || 5)), when = parseISO(d.date);
+  list.innerHTML = done.length ? "" : `<p class="muted">Nothing yet. Tap "+ Log a date" to add one you've been on, or "We did it!" after a pick.</p>`;
+  for (let index = done.length - 1; index >= 0; index--) {
+    const d = done[index], r = Math.max(0, Math.min(5, d.rating || 5)), when = parseISO(d.date), photos = entryPhotos(d);
     const div = document.createElement("div"); div.className = "mem";
     div.innerHTML = `<div class="hearts">${HEART.repeat(r)}<i>${"\u2661".repeat(5 - r)}</i> <span class="muted">${when ? when.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }) : ""}</span></div>
-      <b>${esc(d.name)}</b> <span class="muted">(${esc(d.where || "")})</span>${d.note ? `<div style="font-style:italic;color:var(--deeper)">\u201c${esc(d.note)}\u201d</div>` : ""}`;
+      <b>${esc(d.name)}</b>${d.where ? ` <span class="muted">(${esc(d.where)})</span>` : ""}${d.note ? `<div style="font-style:italic;color:var(--deeper)">\u201c${esc(d.note)}\u201d</div>` : ""}
+      <div class="photos"></div>
+      <div class="tools"><button class="btn" data-act="photos">Add photos${photos.length ? ` (${photos.length})` : ""}</button><button class="btn" data-act="edit">Edit</button><button class="btn" data-act="delete">Delete</button></div>`;
     list.appendChild(div);
-    if (d.photo) photoDB.get(d.photo).then((b64) => { if (b64) { const img = document.createElement("img"); img.alt = ""; img.src = `data:${mimeFor(d.photo)};base64,${b64}`; div.appendChild(img); } });
+    const grid = div.querySelector(".photos");
+    for (const name of photos) {
+      const cell = document.createElement("div"); cell.className = "photo"; grid.appendChild(cell);
+      photoDB.get(name).then((b64) => {
+        if (!b64) { cell.remove(); return; }
+        cell.innerHTML = `<img alt="" src="data:${mimeFor(name)};base64,${b64}"><button aria-label="Remove photo">\u00d7</button>`;
+        cell.querySelector("img").onclick = (e) => { $("viewer-img").src = e.target.src; $("viewer").showModal(); };
+        cell.querySelector("button").onclick = async () => {
+          if (!confirm("Remove this photo from the date?")) return;
+          state.memories.done[index] = normaliseEntry({ ...d, photos: entryPhotos(d).filter((p) => p !== name) });
+          saveMemories(); await forgetPhoto(name); await openMemories();
+        };
+      });
+    }
+    div.querySelector("[data-act=photos]").onclick = () => { addPhotosTo = index; $("add-photos-input").click(); };
+    div.querySelector("[data-act=edit]").onclick = () => openLog({ index });
+    div.querySelector("[data-act=delete]").onclick = async () => {
+      if (!confirm(`Delete \u201c${d.name}\u201d and its photos?`)) return;
+      const [gone] = state.memories.done.splice(index, 1);
+      saveMemories();
+      for (const n of entryPhotos(gone)) await forgetPhoto(n);
+      await openMemories(); toast("Deleted");
+    };
   }
   const byName = new Map(state.ideas.map((i) => [i.name, i]));
   const favs = state.memories.favourites.map((n) => byName.get(n)).filter(Boolean);
@@ -866,9 +965,10 @@ async function openMemories() {
   if (!$("dlg-memories").open) $("dlg-memories").showModal();
 }
 $("open-memories").onclick = openMemories;
+$("mem-log").onclick = () => openLog();
 $("mem-backup").onclick = async () => {
   const photos = {};
-  for (const d of state.memories.done) if (d.photo) { const b = await photoDB.get(d.photo); if (b) photos[d.photo] = b; }
+  for (const d of state.memories.done) for (const n of entryPhotos(d)) { const b = await photoDB.get(n); if (b) photos[n] = b; }
   download(`date-night-backup-${todayISO()}.json`, JSON.stringify({ app: "datenight", version: 1, saved: new Date().toISOString(), memories: state.memories, photos }), "application/json");
   toast("Backup saved. Send it to the laptop or keep it in Google Drive");
 };
@@ -895,11 +995,13 @@ $("mem-review").onclick = async () => {
   const tiles = [[dates.length, "dates together"], [`£${spent}`, "spent on each other"], [rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : "-", "average hearts"], [vibe ? vibe[0].toUpperCase() + vibe.slice(1) : "-", "favourite vibe"], [place || "Home", "favourite place"]];
   const cards = [];
   for (const d of dates) {
-    const b64 = d.photo ? await photoDB.get(d.photo) : null, r = d.rating || 5, when = parseISO(d.date);
-    cards.push(`<div class="card">${b64 ? `<img src="data:${mimeFor(d.photo)};base64,${b64}" alt="">` : ""}<div class="body"><div class="when">${when ? when.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long" }) : ""}</div><h3>${esc(d.name)}</h3><div class="where">${esc(d.where || "")}</div><div class="hearts">${"&#9829;".repeat(r)}<span>${"&#9825;".repeat(5 - r)}</span></div>${d.note ? `<p class="note">\u201c${esc(d.note)}\u201d</p>` : ""}</div></div>`);
+    const imgs = [];
+    for (const n of entryPhotos(d)) { const b64 = await photoDB.get(n); if (b64) imgs.push(`<img src="data:${mimeFor(n)};base64,${b64}" alt="">`); }
+    const r = d.rating || 5, when = parseISO(d.date);
+    cards.push(`<div class="card">${imgs.length ? imgs[0] + (imgs.length > 1 ? `<div class="more">${imgs.slice(1).join("")}</div>` : "") : ""}<div class="body"><div class="when">${when ? when.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long" }) : ""}</div><h3>${esc(d.name)}</h3><div class="where">${esc(d.where || "")}</div><div class="hearts">${"&#9829;".repeat(r)}<span>${"&#9825;".repeat(5 - r)}</span></div>${d.note ? `<p class="note">\u201c${esc(d.note)}\u201d</p>` : ""}</div></div>`);
   }
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Our ${year} in dates</title><style>
-:root{--pink:#e0115f;--ink:#5a1a35;--muted:#b0607f}*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;color:var(--ink);background:linear-gradient(#ffe4ef,#ffc2d8) fixed;padding:28px 16px}main{max-width:900px;margin:0 auto}h1{color:var(--pink);font-size:36px;text-align:center;margin:0 0 4px}.sub{text-align:center;color:var(--muted);margin:0 0 24px}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}.tile{background:#fff7fa;border:2px solid #ffb3cc;border-radius:20px;padding:14px;text-align:center}.tile b{display:block;font-size:24px;color:var(--pink);overflow-wrap:anywhere}.tile span{color:var(--muted);font-size:13px}.best{text-align:center;font-size:17px;margin:8px 0 22px}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;align-items:start}.card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 14px rgba(224,17,95,.15)}.card img{width:100%;height:200px;object-fit:cover;display:block}.body{padding:12px 14px 14px}.when{color:var(--muted);font-size:13px}h3{margin:4px 0 2px}.where{color:var(--pink);font-size:14px}.hearts{color:var(--pink);font-size:20px;margin-top:6px}.hearts span{color:#f3c3d4}.note{font-style:italic;color:#b80d4d;margin:8px 0 0}footer{text-align:center;color:var(--muted);margin-top:28px;font-size:30px}@media print{body{background:#fff}.card{box-shadow:none;border:1px solid #ffb3cc}}
+:root{--pink:#e0115f;--ink:#5a1a35;--muted:#b0607f}*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;color:var(--ink);background:linear-gradient(#ffe4ef,#ffc2d8) fixed;padding:28px 16px}main{max-width:900px;margin:0 auto}h1{color:var(--pink);font-size:36px;text-align:center;margin:0 0 4px}.sub{text-align:center;color:var(--muted);margin:0 0 24px}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}.tile{background:#fff7fa;border:2px solid #ffb3cc;border-radius:20px;padding:14px;text-align:center}.tile b{display:block;font-size:24px;color:var(--pink);overflow-wrap:anywhere}.tile span{color:var(--muted);font-size:13px}.best{text-align:center;font-size:17px;margin:8px 0 22px}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;align-items:start}.card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 14px rgba(224,17,95,.15)}.card img{width:100%;height:200px;object-fit:cover;display:block}.more{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:3px}.more img{height:80px}.body{padding:12px 14px 14px}.when{color:var(--muted);font-size:13px}h3{margin:4px 0 2px}.where{color:var(--pink);font-size:14px}.hearts{color:var(--pink);font-size:20px;margin-top:6px}.hearts span{color:#f3c3d4}.note{font-style:italic;color:#b80d4d;margin:8px 0 0}footer{text-align:center;color:var(--muted);margin-top:28px;font-size:30px}@media print{body{background:#fff}.card{box-shadow:none;border:1px solid #ffb3cc}}
 </style></head><body><main><h1>&#9829; Our ${year} in dates &#9829;</h1><p class="sub">A year of date nights for ${esc(who)}</p><div class="tiles">${tiles.map(([v, k]) => `<div class="tile"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("")}</div>${best ? `<p class="best">Best date of the year: <b>${esc(best.name)}</b></p>` : `<p class="best">No dates logged this year yet. Go and make some memories!</p>`}<div class="cards">${cards.join("")}</div><footer>&#9829; &#9829; &#9829;</footer></main></body></html>`;
   const url = URL.createObjectURL(new Blob([page], { type: "text/html" }));
   if (!window.open(url, "_blank")) download(`our-${year}-in-dates.html`, page, "text/html");

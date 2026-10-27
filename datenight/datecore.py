@@ -248,8 +248,40 @@ def load_memories(path: Path | None = None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
-    return {"favourites": list(data.get("favourites", [])), "done": list(data.get("done", [])),
+    return {"favourites": list(data.get("favourites", [])), "done": [normalise_entry(d) for d in data.get("done", [])],
             "my_ideas": list(data.get("my_ideas", []))}
+
+
+def entry_photos(entry: dict) -> list[str]:
+    """Photo file names for a logged date. Older entries had a single "photo"."""
+    photos = list(entry.get("photos") or [])
+    if entry.get("photo") and entry["photo"] not in photos:
+        photos.insert(0, entry["photo"])
+    return photos
+
+
+def normalise_entry(entry: dict) -> dict:
+    entry = dict(entry)
+    photos = entry_photos(entry)
+    entry.pop("photo", None)
+    if photos:
+        entry["photos"] = photos
+    else:
+        entry.pop("photos", None)
+    return entry
+
+
+def photo_in_use(memories: dict, name: str) -> bool:
+    return any(name in entry_photos(d) for d in memories.get("done", []))
+
+
+def forget_photo(memories: dict, name: str, photos_dir: Path | None = None) -> None:
+    """Deletes a photo file once no logged date uses it."""
+    if not photo_in_use(memories, name):
+        try:
+            ((photos_dir or PHOTOS_DIR) / Path(name).name).unlink()
+        except OSError:
+            pass
 
 
 def save_memories(memories: dict, path: Path | None = None) -> bool:
@@ -633,9 +665,9 @@ def make_backup(memories: dict, photos_dir: Path | None = None) -> dict:
     photos_dir = photos_dir or PHOTOS_DIR
     photos = {}
     for d in memories.get("done", []):
-        name = d.get("photo")
-        if name and (photos_dir / name).is_file():
-            photos[name] = base64.b64encode((photos_dir / name).read_bytes()).decode("ascii")
+        for name in entry_photos(d):
+            if (photos_dir / name).is_file():
+                photos[name] = base64.b64encode((photos_dir / name).read_bytes()).decode("ascii")
     return {"app": "datenight", "version": 1, "saved": datetime.now().isoformat(timespec="seconds"),
             "memories": memories, "photos": photos}
 
@@ -649,12 +681,21 @@ def merge_memories(mine: dict, theirs: dict) -> tuple[dict, int]:
         if fav not in merged["favourites"]:
             merged["favourites"].append(fav)
             added += 1
-    seen = {(d.get("name"), d.get("date")) for d in merged["done"]}
+    merged["done"] = [normalise_entry(d) for d in merged["done"]]
+    by_key = {(d.get("name"), d.get("date")): d for d in merged["done"]}
     for d in theirs.get("done", []):
-        if (d.get("name"), d.get("date")) not in seen:
+        d = normalise_entry(d)
+        key = (d.get("name"), d.get("date"))
+        if key not in by_key:
             merged["done"].append(d)
-            seen.add((d.get("name"), d.get("date")))
+            by_key[key] = d
             added += 1
+        else:  # the same date logged on both devices: keep every photo from either
+            here = by_key[key]
+            extra = [p for p in entry_photos(d) if p not in entry_photos(here)]
+            if extra:
+                here["photos"] = entry_photos(here) + extra
+                added += len(extra)
     merged["done"].sort(key=lambda d: d.get("date", ""))
     names = {i.get("name") for i in merged["my_ideas"]}
     for idea in theirs.get("my_ideas", []):
@@ -696,12 +737,13 @@ def year_review_html(done: list[dict], year: int, names: tuple[str, str] = ("", 
              (places.most_common(1)[0][0] if places else "Home", "favourite place")]
     cards = []
     for d in dates:
-        img = ""
-        photo = d.get("photo")
-        if photo and (photos_dir / photo).is_file():
-            kind = "png" if photo.lower().endswith(".png") else "gif" if photo.lower().endswith(".gif") else "jpeg"
-            data = base64.b64encode((photos_dir / photo).read_bytes()).decode("ascii")
-            img = f'<img src="data:image/{kind};base64,{data}" alt="">'
+        imgs = []
+        for photo in entry_photos(d):
+            if (photos_dir / photo).is_file():
+                kind = "png" if photo.lower().endswith(".png") else "gif" if photo.lower().endswith(".gif") else "jpeg"
+                data = base64.b64encode((photos_dir / photo).read_bytes()).decode("ascii")
+                imgs.append(f'<img src="data:image/{kind};base64,{data}" alt="">')
+        img = (imgs[0] + (f'<div class="more">{"".join(imgs[1:])}</div>' if len(imgs) > 1 else "")) if imgs else ""
         try:
             when = date.fromisoformat(d["date"]).strftime("%A %d %B")
         except (KeyError, ValueError):
@@ -733,6 +775,8 @@ h1 {{ color:var(--pink); font-size: 44px; text-align:center; margin: 0 0 4px; }}
 .card {{ background:#fff; border-radius: 20px; overflow:hidden; box-shadow: 0 4px 14px rgba(224,17,95,.15);
          break-inside: avoid; }}
 .card img {{ width:100%; height: 200px; object-fit: cover; display:block; }}
+.more {{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 3px; }}
+.more img {{ height: 80px; }}
 .body {{ padding: 14px 16px 16px; }}
 .when {{ color:var(--muted); font-size: 13px; }}
 h3 {{ margin: 4px 0 2px; font-size: 18px; }}

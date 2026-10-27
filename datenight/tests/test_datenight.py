@@ -1,10 +1,12 @@
 import random
+import time
 import sys
 from collections import deque
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import datenight as dn  # noqa: E402
 
@@ -117,7 +119,8 @@ def test_favourites_are_picked_more_and_done_dates_and_rainy_walks_less():
 
 def test_memories_round_trip_and_your_ideas_join_the_list(tmp_path):
     path = tmp_path / "memories.json"
-    assert dn.load_memories(path) == {"favourites": [], "done": [], "my_ideas": [], "retired": []}
+    assert dn.load_memories(path) == {"favourites": [], "done": [], "my_ideas": [], "retired": [], "deleted": {},
+                                      "stamps": {}, "shared": {}}
     mine = {"name": "Chips at Skegness", "where": "Skegness", "minutes": 60, "cost": 20, "vibes": ["outside"],
             "about": "Seaside."}
     assert dn.save_memories({"favourites": ["Walk"], "done": [], "my_ideas": [mine, {"name": "broken"}]}, path)
@@ -287,7 +290,9 @@ def test_sounds_are_made_on_the_fly(tmp_path):
 def test_several_photos_per_date_and_old_single_photo_entries(tmp_path):
     old = {"name": "Walk", "date": "2026-01-01", "photo": "a.jpg"}
     assert dn.entry_photos(old) == ["a.jpg"]
-    assert dn.normalise_entry(old) == {"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg"]}
+    assert {k: v for k, v in dn.normalise_entry(old).items() if k != "id"} == {"name": "Walk", "date": "2026-01-01",
+                                                                             "photos": ["a.jpg"]}
+    assert dn.normalise_entry(old)["id"] == dn.normalise_entry(dict(old))["id"]  # same id on every device
     assert "photos" not in dn.normalise_entry({"name": "Walk", "date": "2026-01-01", "photos": []})
     path = tmp_path / "memories.json"
     path.write_text('{"done": [{"name": "Walk", "date": "2026-01-01", "photo": "a.jpg"}]}')
@@ -298,7 +303,7 @@ def test_same_date_on_two_devices_keeps_every_photo():
     laptop = {"favourites": [], "done": [{"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg"]}], "my_ideas": []}
     phone = {"done": [{"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg", "b.jpg"]}]}
     merged, added = dn.merge_memories(laptop, phone)
-    assert added == 1 and merged["done"] == [{"name": "Walk", "date": "2026-01-01", "photos": ["a.jpg", "b.jpg"]}]
+    assert added == 1 and len(merged["done"]) == 1 and merged["done"][0]["photos"] == ["a.jpg", "b.jpg"]
     assert dn.merge_memories(merged, phone)[1] == 0
 
 
@@ -334,3 +339,93 @@ def test_not_this_one_is_for_this_session_unless_you_have_done_it():
     assert memories["retired"] == [] and "Bradgate Park walk" in {i["name"] for i in dn.still_on(IDEAS, skipped, [])}
     merged, added = dn.merge_memories({"retired": []}, {"retired": ["Warwick Castle"]})
     assert merged["retired"] == ["Warwick Castle"] and added == 1
+
+
+# Syncing
+
+from fake_supabase import KEY, FakeSupabase  # noqa: E402
+
+
+def _entry(name, day, **extra):
+    return dict({"id": dn.new_entry_id(), "name": name, "date": day, "updated": dn.now_stamp(), "rating": 5}, **extra)
+
+
+def test_merge_sync_newest_change_wins_and_deletes_spread():
+    walk = _entry("Walk", "2026-01-01")
+    a = {"done": [walk]}
+    b = dn.merge_sync({}, a)
+    time.sleep(0.002)
+    edited = dict(walk, note="Lovely", updated=dn.now_stamp())
+    b["done"] = [edited]
+    merged = dn.merge_sync(a, b)
+    assert merged["done"][0]["note"] == "Lovely"
+    dn.delete_entry(merged, walk["id"])
+    assert dn.merge_sync(a, merged)["done"] == [] and dn.merge_sync(merged, b)["done"] == []
+
+
+def test_merge_sync_favourites_retired_and_shared_settings():
+    a, b = dn.sync_shape({}), dn.sync_shape({})
+    dn.set_flag(a, "favourites", "Bradgate Park walk", True)
+    merged = dn.merge_sync(a, b)
+    assert merged["favourites"] == ["Bradgate Park walk"]
+    dn.set_flag(b, "favourites", "Bradgate Park walk", False)  # later, on the other phone
+    b["stamps"]["favourites:Bradgate Park walk"][1] = "9999"
+    assert dn.merge_sync(merged, b)["favourites"] == []
+    dn.set_shared(a, "her_name", "Ellie")
+    assert dn.shared_values(dn.merge_sync(b, a)) == {"her_name": "Ellie"}
+
+
+def test_pairing_text_round_trip():
+    config = {"url": "abc.supabase.co", "key": "sb_publishable_x", "code": dn.new_sync_code()}
+    parsed = dn.parse_pairing(dn.make_pairing(config))
+    assert parsed == dict(config, url="https://abc.supabase.co")
+    assert dn.parse_pairing("hello") is None and dn.parse_pairing(dn.PAIRING_PREFIX + "!!!") is None
+
+
+def test_three_devices_sync_dates_photos_edits_and_deletes(tmp_path):
+    server = FakeSupabase().start()
+    try:
+        code = dn.new_sync_code()
+        laptop, kian, ellie = (dn.SyncClient(server.url, KEY, code) for _ in range(3))
+        dirs = {n: tmp_path / n for n in ("laptop", "kian", "ellie")}
+        dirs["kian"].mkdir()
+        (dirs["kian"] / "pic.jpg").write_bytes(b"\xff\xd8 photo")
+        kian_mem = dn.sync_shape({"done": [_entry("Foxton walk", "2026-09-14", photos=["pic.jpg"])]})
+        dn.set_flag(kian_mem, "favourites", "Warwick Castle", True)
+        kian_mem, stats = dn.sync_once(kian, kian_mem, dirs["kian"])
+        assert stats["uploaded"] == 1
+
+        laptop_mem, stats = dn.sync_once(laptop, dn.sync_shape({}), dirs["laptop"])
+        assert [d["name"] for d in laptop_mem["done"]] == ["Foxton walk"] and stats["downloaded"] == 1
+        assert (dirs["laptop"] / "pic.jpg").read_bytes() == b"\xff\xd8 photo"
+        assert laptop_mem["favourites"] == ["Warwick Castle"]
+
+        # Ellie and the laptop both change things before syncing: both changes survive.
+        ellie_mem, _ = dn.sync_once(ellie, dn.sync_shape({}), dirs["ellie"])
+        ellie_mem["done"].append(_entry("Cinema", "2026-10-03"))
+        laptop_mem["done"][0] = dict(laptop_mem["done"][0], note="Boats!", updated=dn.now_stamp())
+        ellie_mem, _ = dn.sync_once(ellie, ellie_mem, dirs["ellie"])
+        laptop_mem, _ = dn.sync_once(laptop, laptop_mem, dirs["laptop"])
+        kian_mem, _ = dn.sync_once(kian, kian_mem, dirs["kian"])
+        assert [(d["name"], d.get("note")) for d in kian_mem["done"]] == [("Foxton walk", "Boats!"), ("Cinema", None)]
+
+        # A deletion on one phone disappears everywhere.
+        cinema = next(d for d in kian_mem["done"] if d["name"] == "Cinema")
+        dn.delete_entry(kian_mem, cinema["id"])
+        dn.sync_once(kian, kian_mem, dirs["kian"])
+        laptop_mem, _ = dn.sync_once(laptop, laptop_mem, dirs["laptop"])
+        assert [d["name"] for d in laptop_mem["done"]] == ["Foxton walk"]
+
+        # A device with nothing new doesn't keep re-saving.
+        before = server.docs[code][1]
+        dn.sync_once(laptop, laptop_mem, dirs["laptop"])
+        assert server.docs[code][1] == before
+
+        try:
+            dn.sync_once(dn.SyncClient(server.url, "wrong", code), laptop_mem, dirs["laptop"])
+        except dn.SyncError as exc:
+            assert "key" in str(exc)
+        else:
+            raise AssertionError("expected a SyncError")
+    finally:
+        server.stop()

@@ -38,6 +38,8 @@ Then press **Pick our date night** (or Enter/Space). A heart spins round the dis
 
 Your memories, photos, favourites, own ideas and settings live in `~/.config/datenight`. Updating or uninstalling the app keeps them.
 
+**Sync between devices:** see [On your phones](#on-your-phones) and [sync/README.md](sync/README.md).
+
 ## On your phones
 
 The `web/` folder is a phone version with the same ideas and almost everything above: the four questions, seasons, weather, both of us, surprise mode, favourites, the date diary with photos, memories, streaks, badges, year in review, opening hours, sounds, sharing, calendar, and backup and restore. Sharing uses the phone's own Share button.
@@ -57,7 +59,7 @@ The installed app keeps its data separately from Safari. If you've already logge
 
 A version in the App Store would need a Mac, Xcode and Apple's developer membership (£79 a year). The home-screen app gives you the same experience for free.
 
-**Keeping the phones and the laptop in step:** each device keeps its own memories. To share them, press **Back up** on one device, send the file (WhatsApp, email or Google Drive), and press **Restore** on the other. Backups from the phone and the laptop are the same format, and restoring merges rather than overwrites. Live automatic syncing would need a paid server, so it isn't included.
+**Keeping the phones and the laptop in step:** turn on **sync** (Settings → **Sync between our devices**). Then dates, photos, edits, deletions, favourites, your own ideas, names and anniversary stay the same on both iPhones and the laptop, updating within a couple of minutes. It uses your own free Supabase project, which takes about 5 minutes to set up once: see **[sync/README.md](sync/README.md)**. Without sync, you can still move things between devices by pressing **Back up** on one and **Restore** on the other.
 
 ## Install on Ubuntu (one command)
 
@@ -112,7 +114,8 @@ Drive times and prices are estimates. Town templates are general ("an escape roo
 - `datenight.py`: the window. Run `python3 datenight.py --check` to test that it can start.
 - `datecore.py`: the logic (picking, seasons, occasions, streaks, opening hours, sounds, backups, year in review).
 - `web/`: the phone version (`index.html`, plus `sw.js`, which makes it work offline, and the app icons).
+- `sync/`: `supabase.sql` (the one-time setup for syncing) and a step-by-step guide.
 - `ideas.json`: the date ideas.
 - `icon.svg`: the launcher icon.
 - `install.sh`: the installer and uninstaller.
-- `tests/`: checks for the picking, seasons, occasions, streaks, opening hours, backups, sharing and calendar logic (`python3 -m pytest datenight/tests`).
+- `tests/`: checks for the picking, seasons, occasions, streaks, opening hours, backups, sharing, calendar and sync logic. `fake_supabase.py` is a stand-in sync server for the tests (`python3 -m pytest datenight/tests`).

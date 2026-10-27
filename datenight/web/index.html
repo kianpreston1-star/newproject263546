@@ -141,6 +141,7 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
     <h1>&#9829; Date Night Picker &#9829;</h1>
     <p id="subtitle">Made with love, for the two of us</p>
     <p class="weather" id="weather">Checking the weather...</p>
+    <p class="weather" id="sync-status" hidden></p>
   </header>
 
   <div class="install" id="install" hidden>
@@ -264,7 +265,36 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
   <label for="set-herbday">Her birthday</label><input type="date" id="set-herbday">
   <label for="set-yourbday">Your birthday</label><input type="date" id="set-yourbday">
   <p class="muted">Dates power the countdown at the top, and special dates come up more often in the two weeks before.</p>
-  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="set-save">Save &#9829;</button></div>
+  <div class="dlg-buttons"><button class="btn" id="open-sync">Sync between our devices &#9829;</button><button class="btn" data-close>Cancel</button><button class="btn primary" id="set-save">Save &#9829;</button></div>
+</dialog>
+
+<dialog id="dlg-sync">
+  <h2>Sync between our devices &#9829;</h2>
+  <div id="sync-on" hidden>
+    <p>Sync is on. Dates, photos, favourites, your own ideas, names and dates stay the same on every device with this pairing text.</p>
+    <label for="sync-pairing">Pairing text (treat it like a password)</label>
+    <textarea id="sync-pairing" rows="4" readonly></textarea>
+    <p class="muted">To add another phone or the laptop: send this text to it, then paste it into its Sync settings and tap Join.</p>
+    <p id="sync-on-status" style="color:var(--deep);font-weight:700"></p>
+    <div class="dlg-buttons" style="justify-content:flex-start">
+      <button class="btn primary" id="sync-copy">Copy pairing text</button>
+      <button class="btn" id="sync-now">Sync now</button>
+      <button class="btn" id="sync-stop">Stop syncing here</button>
+    </div>
+  </div>
+  <div id="sync-off">
+    <p class="muted">Keeps your dates, photos and favourites the same on both phones and the laptop, using your own free Supabase project. <a href="https://github.com/kianpreston1-star/newproject263546/blob/claude/determined-bardeen-vvrlm3/datenight/sync/README.md" target="_blank" style="color:var(--deep)">Setup guide</a></p>
+    <label for="sync-paste">Already set up on another device? Paste its pairing text</label>
+    <textarea id="sync-paste" rows="3" placeholder="datenight-sync:..."></textarea>
+    <div class="dlg-buttons" style="justify-content:flex-start"><button class="btn primary" id="sync-join">Join</button></div>
+    <label for="sync-url" style="margin-top:14px">First device? Your Supabase project URL</label>
+    <input type="text" id="sync-url" placeholder="https://abcd1234.supabase.co" autocapitalize="off" autocorrect="off">
+    <label for="sync-key">Publishable or anon key</label>
+    <input type="text" id="sync-key" autocapitalize="off" autocorrect="off">
+    <div class="dlg-buttons" style="justify-content:flex-start"><button class="btn" id="sync-create">Create our sync</button></div>
+  </div>
+  <div class="err" id="sync-err"></div>
+  <div class="dlg-buttons"><button class="btn" data-close>Close</button></div>
 </dialog>
 
 <dialog id="dlg-both">
@@ -562,25 +592,95 @@ const photoDB = {
 };
 const mimeFor = (name) => /\.png$/i.test(name) ? "image/png" : /\.gif$/i.test(name) ? "image/gif" : "image/jpeg";
 function entryPhotos(d) { const p = [...(d.photos || [])]; if (d.photo && !p.includes(d.photo)) p.unshift(d.photo); return p; }
-function normaliseEntry(d) { const e = { ...d }, p = entryPhotos(e); delete e.photo; if (p.length) e.photos = p; else delete e.photos; return e; }
-function loadMemories() { const m = store.get("memories", {}); return { favourites: m.favourites || [], done: (m.done || []).map(normaliseEntry), my_ideas: m.my_ideas || [], retired: m.retired || [] }; }
-function mergeMemories(mine, theirs) {
-  const merged = { favourites: [...mine.favourites], done: [...mine.done], my_ideas: [...mine.my_ideas], retired: [...(mine.retired || [])] };
-  let added = 0;
-  for (const key of ["favourites", "retired"]) for (const f of theirs[key] || []) if (!merged[key].includes(f)) { merged[key].push(f); added++; }
-  merged.done = merged.done.map(normaliseEntry);
-  const byKey = new Map(merged.done.map((d) => [d.name + "|" + d.date, d]));
-  for (const raw of theirs.done || []) {
-    const d = normaliseEntry(raw), key = d.name + "|" + d.date, here = byKey.get(key);
-    if (!here) { merged.done.push(d); byKey.set(key, d); added++; continue; }
-    const extra = entryPhotos(d).filter((p) => !entryPhotos(here).includes(p));  // same date on both devices: keep every photo
-    if (extra.length) { here.photos = [...entryPhotos(here), ...extra]; added += extra.length; }
+// SHA-1, only to give dates logged before sync the same id the laptop gives them.
+function sha1(text) {
+  const bytes = new TextEncoder().encode(text), words = [], len = bytes.length * 8;
+  for (let i = 0; i < bytes.length; i++) words[i >> 2] |= bytes[i] << (24 - (i % 4) * 8);
+  words[len >> 5] |= 0x80 << (24 - len % 32);
+  words[(((len + 64) >> 9) << 4) + 15] = len;
+  let [a, b, c, d, e] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
+  const rol = (n, s) => (n << s) | (n >>> (32 - s)), w = new Array(80);
+  for (let i = 0; i < words.length; i += 16) {
+    let [aa, bb, cc, dd, ee] = [a, b, c, d, e];
+    for (let t = 0; t < 80; t++) {
+      w[t] = t < 16 ? (words[i + t] | 0) : rol(w[t - 3] ^ w[t - 8] ^ w[t - 14] ^ w[t - 16], 1);
+      const f = t < 20 ? (b & c) | (~b & d) : t < 40 ? b ^ c ^ d : t < 60 ? (b & c) | (b & d) | (c & d) : b ^ c ^ d;
+      const k = t < 20 ? 0x5a827999 : t < 40 ? 0x6ed9eba1 : t < 60 ? 0x8f1bbcdc : 0xca62c1d6;
+      const tmp = (rol(a, 5) + f + e + k + w[t]) | 0;
+      e = d; d = c; c = rol(b, 30); b = a; a = tmp;
+    }
+    a = (a + aa) | 0; b = (b + bb) | 0; c = (c + cc) | 0; d = (d + dd) | 0; e = (e + ee) | 0;
   }
-  merged.done.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
-  const names = new Set(merged.my_ideas.map((i) => i.name));
-  for (const i of theirs.my_ideas || []) if (!names.has(i.name)) { merged.my_ideas.push(i); names.add(i.name); added++; }
-  return [merged, added];
+  return [a, b, c, d, e].map((n) => (n >>> 0).toString(16).padStart(8, "0")).join("");
 }
+const nowStamp = () => new Date().toISOString().replace(/\.(\d{3})Z$/, ".$1Z");
+const newEntryId = () => "d-" + [...crypto.getRandomValues(new Uint8Array(8))].map((x) => x.toString(16).padStart(2, "0")).join("");
+function normaliseEntry(d) {
+  const e = { ...d }, p = entryPhotos(e);
+  if (!e.id) e.id = "d-" + sha1(`${e.name || ""}|${e.date || ""}`).slice(0, 16);
+  delete e.photo; if (p.length) e.photos = p; else delete e.photos; return e;
+}
+const SHARED_SETTINGS = ["your_name", "her_name", "anniversary", "her_birthday", "your_birthday", "both"];
+function syncShape(m) {
+  m = m || {};
+  return { favourites: [...(m.favourites || [])], done: (m.done || []).map(normaliseEntry), my_ideas: [...(m.my_ideas || [])],
+    retired: [...(m.retired || [])], deleted: { ...(m.deleted || {}) }, stamps: { ...(m.stamps || {}) }, shared: { ...(m.shared || {}) } };
+}
+function loadMemories() { return syncShape(store.get("memories", {})); }
+function setFlag(m, kind, name, on) {
+  const list = m[kind];
+  if (on && !list.includes(name)) list.push(name);
+  if (!on && list.includes(name)) list.splice(list.indexOf(name), 1);
+  m.stamps[`${kind}:${name}`] = [on, nowStamp()];
+}
+const setShared = (m, key, value) => { m.shared[key] = [value, nowStamp()]; };
+const sharedValues = (m) => Object.fromEntries(Object.entries(m.shared || {}).filter(([k]) => SHARED_SETTINGS.includes(k)).map(([k, v]) => [k, v[0]]));
+function deleteEntry(m, id) { const k = m.done.findIndex((d) => d.id === id); if (k < 0) return null; m.deleted[id] = nowStamp(); return m.done.splice(k, 1)[0]; }
+// Same rules as merge_sync in datecore.py: for each date, favourite or setting the newest change wins.
+function mergeSync(a, b) {
+  a = syncShape(a); b = syncShape(b);
+  const deleted = { ...a.deleted };
+  for (const [k, t] of Object.entries(b.deleted)) if (t > (deleted[k] || "")) deleted[k] = t;
+  const entries = new Map();
+  for (const d of [...a.done, ...b.done]) {
+    const here = entries.get(d.id);
+    if (!here || (d.updated || "") > (here.updated || "")) entries.set(d.id, JSON.parse(JSON.stringify(d)));
+    else if ((d.updated || "") === (here.updated || "")) {
+      const extra = entryPhotos(d).filter((p) => !entryPhotos(here).includes(p));
+      if (extra.length) here.photos = [...entryPhotos(here), ...extra];
+    }
+  }
+  const done = [...entries].filter(([k, e]) => !(k in deleted && deleted[k] >= (e.updated || ""))).map(([, e]) => e)
+    .sort((x, y) => (x.date || "").localeCompare(y.date || "") || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  const stamps = { ...a.stamps };
+  for (const [k, v] of Object.entries(b.stamps)) if (!(k in stamps) || v[1] > stamps[k][1]) stamps[k] = v;
+  const on = (key) => !(key in stamps) || stamps[key][0];
+  const merged = { done, deleted, stamps };
+  for (const kind of ["favourites", "retired"]) merged[kind] = [...new Set([...a[kind], ...b[kind]])].filter((n) => on(`${kind}:${n}`));
+  const ideas = new Map();
+  for (const i of [...a.my_ideas, ...b.my_ideas]) if (!ideas.has(i.name)) ideas.set(i.name, i);
+  merged.my_ideas = [...ideas.values()].filter((i) => on(`my_ideas:${i.name}`));
+  const shared = { ...a.shared };
+  for (const [k, v] of Object.entries(b.shared)) if (!(k in shared) || v[1] > shared[k][1]) shared[k] = v;
+  merged.shared = shared;
+  return merged;
+}
+function countChanges(before, after) {
+  before = syncShape(before); after = syncShape(after);
+  const old = new Map(before.done.map((d) => [d.id, d]));
+  let n = 0;
+  for (const d of after.done) {
+    if (!old.has(d.id)) n++;
+    else if (JSON.stringify(d) !== JSON.stringify(old.get(d.id))) n += Math.max(1, entryPhotos(d).filter((p) => !entryPhotos(old.get(d.id)).includes(p)).length);
+  }
+  const ids = new Set(after.done.map((d) => d.id));
+  n += [...old.keys()].filter((k) => !ids.has(k)).length;
+  for (const kind of ["favourites", "retired"]) { const x = new Set(before[kind]), y = new Set(after[kind]); n += [...x].filter((v) => !y.has(v)).length + [...y].filter((v) => !x.has(v)).length; }
+  const bi = new Set(before.my_ideas.map((i) => i.name)), ai = new Set(after.my_ideas.map((i) => i.name));
+  n += [...bi].filter((v) => !ai.has(v)).length + [...ai].filter((v) => !bi.has(v)).length;
+  return n;
+}
+function mergeMemories(mine, theirs) { const merged = mergeSync(mine, theirs); return [merged, countChanges(mine, merged)]; }
 function resizePhoto(file) {
   return new Promise((ok, bad) => {
     const img = new Image(), url = URL.createObjectURL(file);
@@ -617,6 +717,7 @@ function beep(name) {
 // The app
 
 const saved = store.get("settings", {});
+Object.assign(saved, sharedValues(syncShape(store.get("memories", {}))));
 const state = {
   ideas: [], baseIdeas: [], twists: [], memories: loadMemories(), settings: saved,
   budget: saved.budget ?? 50, minutes: saved.minutes ?? 30, vibe: VIBES.includes(saved.vibe) ? saved.vibe : null,
@@ -627,7 +728,10 @@ function saveSettings() {
   Object.assign(state.settings, { budget: state.budget, minutes: state.minutes, vibe: state.vibe, when: state.when, sound: state.sound });
   store.set("settings", state.settings);
 }
-function saveMemories() { if (!store.set("memories", state.memories)) toast("Couldn't save: your phone's storage is full"); }
+function saveMemories() {
+  if (!store.set("memories", state.memories)) toast("Couldn't save: your phone's storage is full");
+  if (syncConfig()) scheduleSync(3000);
+}
 function mergeMyIdeas() {
   const names = new Set(state.baseIdeas.map((i) => i.name));
   state.ideas = [...state.baseIdeas];
@@ -709,10 +813,10 @@ const saveSkipped = () => { try { sessionStorage.setItem("datenight.skipped", JS
 const stillOn = (list) => list.filter((i) => !skipped.has(i.name) && !state.memories.retired.includes(i.name));
 function sayNo(name) {
   skipped.add(name); saveSkipped();
-  if (state.memories.done.some((d) => d.name === name)) { if (!state.memories.retired.includes(name)) state.memories.retired.push(name); saveMemories(); return true; }
+  if (state.memories.done.some((d) => d.name === name)) { setFlag(state.memories, "retired", name, true); saveMemories(); return true; }
   return false;
 }
-function bringBack(name) { skipped.delete(name); saveSkipped(); state.memories.retired = state.memories.retired.filter((n) => n !== name); saveMemories(); }
+function bringBack(name) { skipped.delete(name); saveSkipped(); if (state.memories.retired.includes(name)) { setFlag(state.memories, "retired", name, false); saveMemories(); } }
 const candidates = () => stillOn(matching(state.ideas, state.budget, state.minutes, state.vibe, state.when, month()));
 function updateCount() { const n = candidates().length; $("count").textContent = `${HEART} ${n} idea${n !== 1 ? "s" : ""} match`; }
 function weigher() {
@@ -813,8 +917,9 @@ $("nope").onclick = () => {
   toast(forGood ? "You've done that one, so it won't come up again (Memories can bring it back)" : `Not that one ${HEART} it's out until you next open the app`);
 };
 $("fav").onclick = () => {
-  const favs = state.memories.favourites, n = state.current.name, k = favs.indexOf(n);
-  if (k >= 0) { favs.splice(k, 1); toast("Removed from favourites"); } else { favs.push(n); toast(`Saved to favourites ${HEART} it'll come up more often`); }
+  const n = state.current.name, on = !state.memories.favourites.includes(n);
+  setFlag(state.memories, "favourites", n, on);
+  toast(on ? `Saved to favourites ${HEART} it'll come up more often` : "Removed from favourites");
   saveMemories(); refreshFav();
 };
 $("directions").onclick = () => {
@@ -917,8 +1022,8 @@ $("log-save").onclick = async () => {
   $("log-save").disabled = true;
   const old = index !== null ? state.memories.done[index] : {};
   const added = await storePhotos([...$("log-photos").files], day, name);
-  const entry = normaliseEntry({ ...old, name, where: $("log-where").value.trim(), date: day, rating, note: $("log-note").value.trim(), cost,
-    vibes: [...$("log-vibes").querySelectorAll("input:checked")].map((c) => c.value), photos: [...entryPhotos(old), ...added] });
+  const entry = normaliseEntry({ ...old, id: old.id || newEntryId(), name, where: $("log-where").value.trim(), date: day, rating, note: $("log-note").value.trim(), cost,
+    vibes: [...$("log-vibes").querySelectorAll("input:checked")].map((c) => c.value), photos: [...entryPhotos(old), ...added], updated: nowStamp() });
   const done = state.memories.done;
   if (index !== null) done[index] = entry; else done.push(entry);
   done.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -937,7 +1042,7 @@ $("add-photos-input").onchange = async (e) => {
   const d = state.memories.done[addPhotosTo];
   if (!files.length || !d) return;
   const added = await storePhotos(files, d.date || todayISO(), d.name);
-  state.memories.done[addPhotosTo] = normaliseEntry({ ...d, photos: [...entryPhotos(d), ...added] });
+  state.memories.done[addPhotosTo] = normaliseEntry({ ...d, photos: [...entryPhotos(d), ...added], updated: nowStamp() });
   saveMemories(); await openMemories();
   toast(`Added ${added.length} photo${added.length !== 1 ? "s" : ""} ${HEART}`);
 };
@@ -971,7 +1076,7 @@ async function openMemories() {
         cell.querySelector("img").onclick = (e) => { $("viewer-img").src = e.target.src; $("viewer").showModal(); };
         cell.querySelector("button").onclick = async () => {
           if (!confirm("Remove this photo from the date?")) return;
-          state.memories.done[index] = normaliseEntry({ ...d, photos: entryPhotos(d).filter((p) => p !== name) });
+          state.memories.done[index] = normaliseEntry({ ...d, photos: entryPhotos(d).filter((p) => p !== name), updated: nowStamp() });
           saveMemories(); await forgetPhoto(name); await openMemories();
         };
       });
@@ -980,7 +1085,7 @@ async function openMemories() {
     div.querySelector("[data-act=edit]").onclick = () => openLog({ index });
     div.querySelector("[data-act=delete]").onclick = async () => {
       if (!confirm(`Delete \u201c${d.name}\u201d and its photos?`)) return;
-      const [gone] = state.memories.done.splice(index, 1);
+      const gone = deleteEntry(state.memories, d.id);
       saveMemories();
       for (const n of entryPhotos(gone)) await forgetPhoto(n);
       await openMemories(); toast("Deleted");
@@ -1067,6 +1172,7 @@ $("add-save").onclick = () => {
   if (!vibes.length) return err.textContent = "Tick at least one vibe.";
   if (!(mins >= 0 && mins <= DRIVE_MAX && cost >= 0)) return err.textContent = `Drive must be 0 to ${DRIVE_MAX} minutes and cost 0 or more.`;
   state.memories.my_ideas.push({ name, where: $("add-where").value.trim() || "Somewhere special", minutes: mins, cost, vibes, about: $("add-about").value.trim() || "Your own idea.", maps: $("add-maps").value.trim() });
+  state.memories.stamps[`my_ideas:${name}`] = [true, nowStamp()];
   saveMemories(); mergeMyIdeas(); updateCount(); $("dlg-add").close();
   toast(`Added \u201c${name}\u201d ${HEART} ${state.ideas.length} ideas now`);
 };
@@ -1076,8 +1182,13 @@ $("add-save").onclick = () => {
 const SETTING_FIELDS = { "set-you": "your_name", "set-her": "her_name", "set-anniversary": "anniversary", "set-herbday": "her_birthday", "set-yourbday": "your_birthday" };
 $("open-settings").onclick = () => { for (const [id, key] of Object.entries(SETTING_FIELDS)) $(id).value = state.settings[key] || ""; $("dlg-settings").showModal(); };
 $("set-save").onclick = () => {
-  for (const [id, key] of Object.entries(SETTING_FIELDS)) state.settings[key] = $(id).value.trim();
-  saveSettings(); refreshSubtitle(); $("dlg-settings").close();
+  const shared = sharedValues(state.memories);
+  for (const [id, key] of Object.entries(SETTING_FIELDS)) {
+    const value = $(id).value.trim();
+    state.settings[key] = value;
+    if (value !== (shared[key] ?? "")) setShared(state.memories, key, value);
+  }
+  saveMemories(); saveSettings(); refreshSubtitle(); $("dlg-settings").close();
   toast(`Saved ${HEART} ${countdownText(state.settings, new Date())}`);
 };
 function refreshSubtitle() {
@@ -1106,7 +1217,7 @@ $("open-both").onclick = () => {
 $("both-go").onclick = () => {
   const answers = {};
   $("both-sides").querySelectorAll(".side").forEach((s) => answers[s.dataset.side] = { budget: +s.querySelector("[name=budget]").value, minutes: +s.querySelector("[name=minutes]").value, vibes: [...s.querySelectorAll("input:checked")].map((c) => c.value) });
-  state.settings.both = answers; saveSettings();
+  state.settings.both = answers; setShared(state.memories, "both", answers); saveMemories(); saveSettings();
   const list = stillOn(bothMatch(state.ideas, answers.a, answers.b, state.when, month()));
   if (!list.length) return $("both-err").textContent = "Nothing fits you both yet. Try a bigger budget, a longer drive or more vibes.";
   $("dlg-both").close();
@@ -1137,6 +1248,138 @@ async function start() {
     $("weather").textContent = w.summary + (w.rainy ? `  ${HEART}  fewer outdoor picks` : "");
   } catch { $("weather").textContent = "Weather unavailable"; }
 }
+// Syncing between devices through your own free Supabase project (see sync/README.md)
+
+const PAIRING_PREFIX = "datenight-sync:";
+const syncConfig = () => store.get("sync", null);
+class SyncError extends Error {}
+function cleanUrl(url) {
+  url = (url || "").trim().replace(/\/+$/, "");
+  if (url && !url.startsWith("https://") && !url.startsWith("http://127.0.0.1")) url = "https://" + url.replace(/^http:\/\//, "");
+  return url;
+}
+function makePairing(c) {
+  const raw = JSON.stringify({ u: c.url, k: c.key, c: c.code });
+  return PAIRING_PREFIX + btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function parsePairing(text) {
+  text = (text || "").trim();
+  if (!text.startsWith(PAIRING_PREFIX)) return null;
+  try {
+    let body = text.slice(PAIRING_PREFIX.length).replace(/-/g, "+").replace(/_/g, "/");
+    body += "=".repeat((4 - body.length % 4) % 4);
+    const d = JSON.parse(decodeURIComponent(escape(atob(body))));
+    const c = { url: cleanUrl(d.u), key: String(d.k).trim(), code: String(d.c).trim() };
+    return c.url && c.key && c.code.length >= 24 ? c : null;
+  } catch { return null; }
+}
+const newSyncCode = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function rpc(c, name, payload) {
+  const headers = { apikey: c.key, "Content-Type": "application/json" };
+  if (c.key.startsWith("eyJ")) headers.Authorization = `Bearer ${c.key}`;
+  let r;
+  try { r = await fetch(`${cleanUrl(c.url)}/rest/v1/rpc/${name}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) }); }
+  catch { throw new SyncError("Can't reach Supabase (offline?)"); }
+  if (r.status === 404) throw new SyncError("The sync functions aren't set up yet: run sync/supabase.sql in Supabase");
+  if (r.status === 401 || r.status === 403) throw new SyncError("Supabase didn't accept the key. Check the project URL and key");
+  if (!r.ok) throw new SyncError(`Supabase said ${r.status}`);
+  const text = await r.text();
+  return text ? JSON.parse(text) : null;
+}
+const sameMemories = (a, b) => JSON.stringify(syncShape(a)) === JSON.stringify(syncShape(b));
+async function syncOnce(c, memories) {
+  let merged, serverPhotos;
+  for (let attempt = 0; ; attempt++) {
+    const r = (await rpc(c, "dn_pull", { p_code: c.code })) || {};
+    serverPhotos = r.photos || [];
+    merged = mergeSync(memories, r.doc || {});
+    if (sameMemories(merged, r.doc || {}) || await rpc(c, "dn_push", { p_code: c.code, p_doc: merged, p_expected: r.version ?? null })) break;
+    if (attempt === 4) throw new SyncError("Another device kept saving at the same moment. It'll try again shortly");
+  }
+  const stats = { uploaded: 0, downloaded: 0 };
+  const wanted = [...new Set(merged.done.flatMap(entryPhotos))];
+  for (const name of wanted) if (!serverPhotos.includes(name)) {
+    const data = await photoDB.get(name);
+    if (data && data.length <= 3500000) { await rpc(c, "dn_photo_put", { p_code: c.code, p_name: name, p_data: data }); stats.uploaded++; }
+  }
+  const missing = [];
+  for (const name of wanted) if (serverPhotos.includes(name) && !(await photoDB.get(name))) missing.push(name);
+  for (let k = 0; k < missing.length; k += 4) {
+    const got = (await rpc(c, "dn_photo_get", { p_code: c.code, p_names: missing.slice(k, k + 4) })) || {};
+    for (const [name, data] of Object.entries(got)) if (data) { await photoDB.put(name, data); stats.downloaded++; }
+  }
+  return [merged, stats];
+}
+let syncTimer = null, syncBusy = false, syncAgain = false;
+function setSyncStatus(text) { $("sync-status").hidden = !text; $("sync-status").textContent = text ? `${HEART} ${text}` : ""; $("sync-on-status").textContent = text || ""; }
+function scheduleSync(delay = 0) { clearTimeout(syncTimer); syncTimer = setTimeout(runSync, delay); }
+async function runSync() {
+  const c = syncConfig();
+  if (!c) return;
+  if (syncBusy) { syncAgain = true; return; }
+  syncBusy = true; setSyncStatus("Syncing...");
+  const snapshot = JSON.parse(JSON.stringify(state.memories));
+  try {
+    const [result, stats] = await syncOnce(c, snapshot);
+    const changedHere = !sameMemories(snapshot, state.memories);  // edits made while syncing
+    const merged = changedHere ? mergeSync(state.memories, result) : result;
+    const fresh = countChanges(state.memories, merged);
+    state.memories = merged;
+    store.set("memories", state.memories);
+    applySynced();
+    setSyncStatus(`Synced at ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`);
+    if (fresh) { toast(`Synced ${HEART} ${fresh} new thing${fresh !== 1 ? "s" : ""} from your other devices`); if ($("dlg-memories").open) await openMemories(); }
+    if (changedHere || syncAgain) { syncAgain = false; scheduleSync(1500); }
+  } catch (e) {
+    setSyncStatus(e instanceof SyncError ? e.message : "Sync failed");
+    scheduleSync(60000);
+  } finally { syncBusy = false; }
+}
+function applySynced() {
+  const shared = sharedValues(state.memories);
+  if (Object.entries(shared).some(([k, v]) => JSON.stringify(state.settings[k]) !== JSON.stringify(v))) { Object.assign(state.settings, shared); saveSettings(); refreshSubtitle(); }
+  mergeMyIdeas(); updateCount();
+  if (state.current) refreshFav();
+}
+function drawSync() {
+  const c = syncConfig();
+  $("sync-on").hidden = !c; $("sync-off").hidden = !!c; $("sync-err").textContent = "";
+  if (c) { $("sync-pairing").value = makePairing(c); if (!$("sync-on-status").textContent) $("sync-on-status").textContent = "Waiting for the first sync"; }
+}
+$("open-sync").onclick = () => { $("dlg-settings").close(); drawSync(); $("dlg-sync").showModal(); };
+$("sync-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("sync-pairing").value); toast("Copied! Paste it into the other device's Sync settings"); }
+  catch { $("sync-pairing").select(); document.execCommand("copy"); toast("Copied!"); }
+};
+$("sync-now").onclick = () => { scheduleSync(0); $("dlg-sync").close(); };
+$("sync-stop").onclick = () => {
+  if (!confirm("Stop syncing on this phone? Everything already here stays here.")) return;
+  store.set("sync", null); setSyncStatus(""); $("dlg-sync").close(); toast("Sync is off on this phone");
+};
+async function connectSync(c, creating) {
+  $("sync-err").textContent = "Checking...";
+  try {
+    const r = (await rpc(c, "dn_pull", { p_code: c.code })) || {};
+    if (creating && r.version) { $("sync-err").textContent = "That sync code is already in use. Try again."; return; }
+  } catch (e) { $("sync-err").textContent = e.message; return; }
+  store.set("sync", c); drawSync(); scheduleSync(0); startSyncTicking();
+  toast(`Sync is on ${HEART}`);
+}
+$("sync-join").onclick = () => {
+  const c = parsePairing($("sync-paste").value);
+  if (!c) { $("sync-err").textContent = "That doesn't look like a pairing text. Copy the whole thing, starting with datenight-sync:"; return; }
+  connectSync(c, false);
+};
+$("sync-create").onclick = () => {
+  const url = cleanUrl($("sync-url").value), key = $("sync-key").value.trim();
+  if (!url || !key) { $("sync-err").textContent = "Fill in both the project URL and the key."; return; }
+  connectSync({ url, key, code: newSyncCode() }, true);
+};
+let syncTicking = false;
+function startSyncTicking() { if (!syncTicking) { syncTicking = true; setInterval(() => syncConfig() && scheduleSync(0), 120000); } }
+if (syncConfig()) { setSyncStatus("Syncing..."); startSyncTicking(); }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && syncConfig()) scheduleSync(500); });
+
 // Making it an app: works offline, asks to keep its data, and shows how to install it
 
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -1170,7 +1413,7 @@ if ("serviceWorker" in navigator) {
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
 
 showInstall();
-start();
+start().then(() => { if (syncConfig()) scheduleSync(300); });
 </script>
 </body>
 </html>

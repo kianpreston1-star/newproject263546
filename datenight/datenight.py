@@ -10,6 +10,7 @@ which opens Google Maps in your browser. Plain Tkinter, no extra packages, a few
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import random
@@ -65,6 +66,19 @@ def heart_points(cx, cy, size):
         y = 13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)
         pts += [cx + x * size / 16, cy - y * size / 16 - size * 0.1]
     return pts
+
+
+SYNC_GUIDE_URL = ("https://github.com/kianpreston1-star/newproject263546/blob/claude/determined-bardeen-vvrlm3/"
+                  "datenight/sync/README.md")
+
+
+def _same_memories(a: dict, b: dict) -> bool:
+    return json.dumps(sync_shape(a), sort_keys=True) == json.dumps(sync_shape(b), sort_keys=True)
+
+
+def datetime_now_hm() -> str:
+    from datetime import datetime
+    return datetime.now().strftime("%H:%M")
 
 
 class HeartSlider:
@@ -159,6 +173,7 @@ class App:
         self.weather_result: list = []
 
         self.settings = saved = load_settings()
+        saved.update(shared_values(self.memories))
         self.budget = int(saved.get("budget", 50))
         self.minutes = int(saved.get("minutes", 30))
         self.vibe: str | None = saved.get("vibe") if saved.get("vibe") in VIBES else None
@@ -229,7 +244,11 @@ class App:
             x0 += width + 8
         self.go = PinkButton(c, (50, 566, 426, 616), f"{HEART}  Pick our date night  {HEART}", self.spin,
                              size=14, fill=DEEP, hover=DEEPER)
-        c.create_text(self.DISC_X, 640, text="or press Enter / Space", font=(FONT, 9), fill=MUTED)
+        self.footnote = c.create_text(self.DISC_X, 640, text="or press Enter / Space", font=(FONT, 9), fill=MUTED)
+        self.sync_busy = False
+        self.sync_again = False
+        self.sync_results: list = []
+        self._sync_job = None
         root.bind("<Return>", lambda _e: self.spin())
         root.bind("<space>", lambda _e: self.spin())
 
@@ -277,6 +296,10 @@ class App:
         if weather:
             threading.Thread(target=lambda: self.weather_result.append(fetch_weather()), daemon=True).start()
             self._wait_for_weather(0)
+            if self.settings.get("sync"):
+                self._set_sync_status("Syncing...")
+                self.schedule_sync(800)
+                self.root.after(120_000, self._sync_tick)
 
     # Questions
 
@@ -596,15 +619,17 @@ class App:
     def _store(self):
         if not save_memories(self.memories):
             self.toast("Couldn't save to ~/.config/datenight")
+        if self.settings.get("sync"):
+            self.schedule_sync(3000)
 
     def toggle_favourite(self):
         name = self.current["name"]
         favs = self.memories["favourites"]
         if name in favs:
-            favs.remove(name)
+            set_flag(self.memories, "favourites", name, False)
             self.toast("Removed from favourites")
         else:
-            favs.append(name)
+            set_flag(self.memories, "favourites", name, True)
             self.toast(f"Saved to favourites {HEART} it'll come up more often")
         self._store()
         self._refresh_fav()
@@ -726,7 +751,9 @@ class App:
                 return error.config(text="Spent should be a number of pounds.")
             new = dict(entry, name=name, where=fields["where"].get().strip(), date=day.isoformat(),
                        rating=rating.get(), note=note.get("1.0", "end").strip(), cost=cost,
-                       vibes=[v for v in VIBES if vibe_vars[v].get()])
+                       vibes=[v for v in VIBES if vibe_vars[v].get()], updated=now_stamp())
+            if index is None:
+                new["id"] = new_entry_id()
             photos = entry_photos(entry)
             for path in chosen:
                 saved_name = save_photo(path, new["date"], name)
@@ -782,7 +809,7 @@ class App:
                 saved_name = save_photo(path, entry.get("date", today.isoformat()), entry["name"])
                 if saved_name:
                     photos.append(saved_name)
-            done[i] = normalise_entry(dict(entry, photos=photos))
+            done[i] = normalise_entry(dict(entry, photos=photos, updated=now_stamp()))
             self._store()
             refresh()
             self.toast(f"Added {len(paths)} photo{'s' if len(paths) != 1 else ''} {HEART}")
@@ -791,7 +818,8 @@ class App:
             from tkinter import messagebox
             if not messagebox.askyesno("Remove photo", "Remove this photo from the date?", parent=win):
                 return
-            done[i] = normalise_entry(dict(done[i], photos=[p for p in entry_photos(done[i]) if p != name]))
+            done[i] = normalise_entry(dict(done[i], photos=[p for p in entry_photos(done[i]) if p != name],
+                                           updated=now_stamp()))
             self._store()
             forget_photo(self.memories, name)
             refresh()
@@ -801,7 +829,7 @@ class App:
             if not messagebox.askyesno("Delete date", f"Delete “{done[i]['name']}” and its photos?",
                                        parent=win):
                 return
-            gone = done.pop(i)
+            gone = delete_entry(self.memories, done[i]["id"])
             self._store()
             for name in entry_photos(gone):
                 forget_photo(self.memories, name)
@@ -1004,6 +1032,7 @@ class App:
                     "cost": price, "vibes": vibes, "about": about.get().strip() or "Your own idea.",
                     "maps": fields["maps"].get().strip()}
             self.memories["my_ideas"].append(idea)
+            self.memories.setdefault("stamps", {})[f"my_ideas:{name}"] = [True, now_stamp()]
             self._store()
             self.ideas = merge_my_ideas(self.ideas, [idea])
             self._update_count()
@@ -1181,7 +1210,7 @@ class App:
 
     def open_settings(self):
         tk = self.tk
-        win = self._dialog(f"Settings {HEART}", 440, 470)
+        win = self._dialog(f"Settings {HEART}", 440, 540)
         form = tk.Frame(win, bg=PANEL)
         form.pack(fill="both", expand=True, padx=22)
         entry = dict(font=(FONT, 11), relief="flat", bg="white", fg=INK, highlightthickness=1,
@@ -1209,8 +1238,14 @@ class App:
         tk.Label(form, text="Dates power the countdown at the top, and special dates come up more often in the "
                             "two weeks before.", font=(FONT, 9), fg=MUTED, bg=PANEL, wraplength=390,
                  justify="left").grid(row=len(rows) + 1, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        sync_row = tk.Frame(form, bg=PANEL)
+        sync_row.grid(row=len(rows) + 2, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self._button(sync_row, f"Sync between our devices {HEART}", lambda: (win.destroy(), self.open_sync()),
+                     primary=False).pack(side="left")
+        tk.Label(sync_row, text="On" if self.settings.get("sync") else "Off", font=(FONT, 9, "bold"),
+                 fg=DEEP if self.settings.get("sync") else MUTED, bg=PANEL).pack(side="left", padx=10)
         error = tk.Label(form, text="", font=(FONT, 9), fg=DEEP, bg=PANEL)
-        error.grid(row=len(rows) + 2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        error.grid(row=len(rows) + 3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         def save(*_):
             values = {}
@@ -1223,6 +1258,10 @@ class App:
                     text = parsed.isoformat()
                 values[key] = text
             self.settings.update(values)
+            for key, value in values.items():
+                if key in SHARED_SETTINGS and value != shared_values(self.memories).get(key):
+                    set_shared(self.memories, key, value)
+            self._store()
             self.sound = sound.get()
             self._refresh_sound()
             self._save()
@@ -1283,6 +1322,8 @@ class App:
             answers = {k: {"budget": b.get(), "minutes": m.get(), "vibes": [v for v, on in vs.items() if on.get()]}
                        for k, (b, m, vs) in prefs.items()}
             self.settings["both"] = answers
+            set_shared(self.memories, "both", answers)
+            self._store()
             self._save()
             candidates = self._still_on(both_match(self.ideas, answers["a"], answers["b"], self.when,
                                                    date.today().month))
@@ -1298,6 +1339,187 @@ class App:
         row.pack(fill="x", padx=22, pady=(4, 16))
         self._button(row, f"Find a date we both love {HEART}", go).pack(side="right")
         self._button(row, "Cancel", win.destroy, primary=False).pack(side="right", padx=8)
+
+    # Syncing between devices
+
+    def _set_sync_status(self, text):
+        self.c.itemconfig(self.footnote, text=f"{HEART} {text}" if text else "or press Enter / Space")
+
+    def _sync_tick(self):
+        if self.settings.get("sync"):
+            self.schedule_sync(0)
+        self.root.after(120_000, self._sync_tick)
+
+    def schedule_sync(self, delay_ms=0):
+        if self._sync_job:
+            self.root.after_cancel(self._sync_job)
+        self._sync_job = self.root.after(delay_ms, self._start_sync)
+
+    def _start_sync(self):
+        self._sync_job = None
+        config = self.settings.get("sync")
+        if not config:
+            return
+        if self.sync_busy:
+            self.sync_again = True
+            return
+        self.sync_busy = True
+        self._set_sync_status("Syncing...")
+        snapshot = copy.deepcopy(self.memories)
+        client = SyncClient(config["url"], config["key"], config["code"])
+
+        def work():
+            try:
+                self.sync_results.append(("ok", snapshot, *sync_once(client, snapshot)))
+            except SyncError as exc:
+                self.sync_results.append(("error", snapshot, str(exc), None))
+            except Exception as exc:  # noqa: BLE001 - report anything unexpected rather than dying quietly
+                self.sync_results.append(("error", snapshot, f"Sync failed: {exc}", None))
+        threading.Thread(target=work, daemon=True).start()
+        self._wait_for_sync()
+
+    def _wait_for_sync(self):
+        if not self.sync_results:
+            self.root.after(300, self._wait_for_sync)
+            return
+        status, snapshot, result, stats = self.sync_results.pop(0)
+        self.sync_busy = False
+        if status == "error":
+            self._set_sync_status(result)
+            self.root.after(60_000, lambda: self.settings.get("sync") and self.schedule_sync(0))
+            return
+        changed_here = not _same_memories(snapshot, self.memories)  # edits made while syncing
+        merged = merge_sync(self.memories, result) if changed_here else result
+        new_things = count_changes(self.memories, merged)
+        self.memories = merged
+        save_memories(self.memories)
+        self._apply_synced()
+        when = datetime_now_hm()
+        extra = f", {stats['too_big']} photo(s) too big to send" if stats.get("too_big") else ""
+        self._set_sync_status(f"Synced at {when}{extra}")
+        if new_things:
+            self.toast(f"Synced {HEART} {new_things} new thing{'s' if new_things != 1 else ''} from your other devices")
+        if changed_here or self.sync_again:
+            self.sync_again = False
+            self.schedule_sync(1500)
+
+    def _apply_synced(self):
+        shared = shared_values(self.memories)
+        if any(self.settings.get(k) != v for k, v in shared.items()):
+            self.settings.update(shared)
+            save_settings(self.settings)
+            self._refresh_subtitle()
+        self.ideas = merge_my_ideas(self.ideas, self.memories["my_ideas"])
+        mine = {i["name"] for i in self.memories["my_ideas"]}
+        self.ideas = [i for i in self.ideas if not i.get("mine") or i["name"] in mine]
+        self._update_count()
+        if self.current:
+            self._refresh_fav()
+
+    def open_sync(self):
+        tk = self.tk
+        config = self.settings.get("sync")
+        win = self._dialog(f"Sync between our devices {HEART}", 520, 520)
+        body = tk.Frame(win, bg=PANEL)
+        body.pack(fill="both", expand=True, padx=22)
+        entry = dict(font=(FONT, 10), relief="flat", bg="white", fg=INK, highlightthickness=1,
+                     highlightbackground=PANEL_EDGE, highlightcolor=HOT, insertbackground=DEEP)
+        say = lambda text, **kw: tk.Label(body, text=text, font=kw.pop("font", (FONT, 10)), fg=kw.pop("fg", INK),  # noqa: E731
+                                          bg=PANEL, wraplength=470, justify="left", **kw)
+        error = tk.Label(body, text="", font=(FONT, 9), fg=DEEP, bg=PANEL, wraplength=470, justify="left")
+
+        def copy_text(text):
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.toast("Copied! Send it to her phone and paste it into the app's Settings, then Sync")
+
+        if config:
+            pairing = make_pairing(config)
+            say("Sync is on. Dates, photos, favourites, your own ideas, names and dates stay the same on every "
+                "device that has this pairing text.").pack(anchor="w", pady=(0, 8))
+            say("Pairing text (treat it like a password):", font=(FONT, 10, "bold")).pack(anchor="w")
+            box = tk.Text(body, height=4, wrap="char", **entry)
+            box.insert("1.0", pairing)
+            box.config(state="disabled")
+            box.pack(fill="x", pady=(2, 6))
+            say("To add a phone: send this text to it (WhatsApp works), then in the phone app open Settings, "
+                "tap Sync between our devices, paste it and tap Join.", fg=MUTED).pack(anchor="w")
+            status = self.c.itemcget(self.footnote, "text")
+            say(status if status.startswith(HEART) else "Waiting for the first sync", fg=DEEP,
+                font=(FONT, 10, "bold")).pack(anchor="w", pady=8)
+            row = tk.Frame(body, bg=PANEL)
+            row.pack(fill="x", pady=4)
+            self._button(row, "Copy pairing text", lambda: copy_text(pairing)).pack(side="left")
+            self._button(row, "Sync now", lambda: (self.schedule_sync(0), win.destroy()),
+                         primary=False).pack(side="left", padx=8)
+
+            def stop():
+                from tkinter import messagebox
+                if messagebox.askyesno("Stop syncing", "Stop syncing on this laptop? Everything already here "
+                                       "stays here, and the phones keep syncing with each other.", parent=win):
+                    self.settings.pop("sync", None)
+                    save_settings(self.settings)
+                    self._set_sync_status("")
+                    win.destroy()
+                    self.toast("Sync is off on this laptop")
+            self._button(row, "Stop syncing here", stop, primary=False).pack(side="left")
+        else:
+            say("Keep your dates, photos and favourites the same on both phones and this laptop. It uses your own "
+                "free Supabase project; setting it up takes about 5 minutes and is explained in "
+                "datenight/sync/README.md.").pack(anchor="w")
+            link = tk.Label(body, text="Open the setup guide", font=(FONT, 10, "underline"), fg=DEEP, bg=PANEL,
+                            cursor="hand2")
+            link.pack(anchor="w", pady=(2, 10))
+            link.bind("<Button-1>", lambda _e: webbrowser.open(SYNC_GUIDE_URL))
+            say("Already set up on another device? Paste its pairing text:", font=(FONT, 10, "bold")).pack(anchor="w")
+            paste = tk.Entry(body, **entry)
+            paste.pack(fill="x", ipady=3, pady=(2, 4))
+            say("First device? Enter your Supabase details:", font=(FONT, 10, "bold")).pack(anchor="w", pady=(12, 0))
+            fields = {}
+            for key, text in (("url", "Project URL (like https://abcd1234.supabase.co)"),
+                              ("key", "Publishable or anon key")):
+                say(text, fg=MUTED, font=(FONT, 9)).pack(anchor="w")
+                fields[key] = tk.Entry(body, **entry)
+                fields[key].pack(fill="x", ipady=3, pady=(0, 4))
+
+            def connect(new_config, creating):
+                error.config(text="Checking...")
+                win.update()
+                client = SyncClient(new_config["url"], new_config["key"], new_config["code"], timeout=15)
+                try:
+                    _doc, _photos, version = client.pull()
+                except SyncError as exc:
+                    return error.config(text=str(exc))
+                if creating and version:
+                    return error.config(text="That sync code is already in use. Try again.")
+                self.settings["sync"] = new_config
+                save_settings(self.settings)
+                win.destroy()
+                self.schedule_sync(0)
+                self.root.after(120_000, self._sync_tick)
+                self.open_sync()
+                self.toast(f"Sync is on {HEART}")
+
+            def join():
+                parsed = parse_pairing(paste.get())
+                if not parsed:
+                    return error.config(text="That doesn't look like a pairing text. Copy the whole thing, "
+                                             "starting with datenight-sync:")
+                connect(parsed, creating=False)
+
+            def create():
+                url, key = clean_url(fields["url"].get()), fields["key"].get().strip()
+                if not url or not key:
+                    return error.config(text="Fill in both the project URL and the key.")
+                connect({"url": url, "key": key, "code": new_sync_code()}, creating=True)
+            row = tk.Frame(body, bg=PANEL)
+            row.pack(fill="x", pady=(8, 0))
+            self._button(row, "Join", join).pack(side="left")
+            self._button(row, "Create our sync", create).pack(side="left", padx=8)
+        error.pack(anchor="w", pady=(8, 0))
+        bottom = tk.Frame(win, bg=PANEL)
+        bottom.pack(fill="x", padx=22, pady=14)
+        self._button(bottom, "Close", win.destroy, primary=False).pack(side="right")
 
     def toast(self, message):
         c = self.c

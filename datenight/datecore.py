@@ -5,11 +5,14 @@ No Tkinter in here, so it can be tested on its own.
 from __future__ import annotations
 
 import base64
+import copy
+import hashlib
 import html
 import json
 import math
 import random
 import re
+import secrets
 import shutil
 import struct
 import subprocess
@@ -248,8 +251,95 @@ def load_memories(path: Path | None = None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
+    return sync_shape(data)
+
+
+# Every change carries a timestamp, so when devices sync the newest change wins and deletions spread too.
+
+SHARED_SETTINGS = ("your_name", "her_name", "anniversary", "her_birthday", "your_birthday", "both")
+
+
+def now_stamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def new_entry_id() -> str:
+    return "d-" + secrets.token_hex(8)
+
+
+def sync_shape(data: dict) -> dict:
+    """Memories in their full shape, whatever older version of the app saved them."""
+    data = data or {}
     return {"favourites": list(data.get("favourites", [])), "done": [normalise_entry(d) for d in data.get("done", [])],
-            "my_ideas": list(data.get("my_ideas", [])), "retired": list(data.get("retired", []))}
+            "my_ideas": list(data.get("my_ideas", [])), "retired": list(data.get("retired", [])),
+            "deleted": dict(data.get("deleted", {})), "stamps": dict(data.get("stamps", {})),
+            "shared": dict(data.get("shared", {}))}
+
+
+def set_flag(memories: dict, kind: str, name: str, on: bool) -> None:
+    """Adds or removes a name from favourites or retired, remembering when, so other devices follow."""
+    names = memories.setdefault(kind, [])
+    if on and name not in names:
+        names.append(name)
+    if not on and name in names:
+        names.remove(name)
+    memories.setdefault("stamps", {})[f"{kind}:{name}"] = [on, now_stamp()]
+
+
+def set_shared(memories: dict, key: str, value) -> None:
+    memories.setdefault("shared", {})[key] = [value, now_stamp()]
+
+
+def shared_values(memories: dict) -> dict:
+    return {k: v[0] for k, v in memories.get("shared", {}).items() if k in SHARED_SETTINGS}
+
+
+def delete_entry(memories: dict, entry_id: str) -> dict | None:
+    done = memories["done"]
+    for k, d in enumerate(done):
+        if d["id"] == entry_id:
+            memories.setdefault("deleted", {})[entry_id] = now_stamp()
+            return done.pop(k)
+    return None
+
+
+def merge_sync(a: dict, b: dict) -> dict:
+    """Combines two copies of the memories. For each date, favourite or setting the newest change wins;
+    deletions win over older versions; anything without a timestamp is kept from both sides."""
+    a, b = sync_shape(a), sync_shape(b)
+    deleted = dict(a["deleted"])
+    for k, t in b["deleted"].items():
+        if t > deleted.get(k, ""):
+            deleted[k] = t
+    entries: dict[str, dict] = {}
+    for d in a["done"] + b["done"]:
+        here = entries.get(d["id"])
+        if here is None or d.get("updated", "") > here.get("updated", ""):
+            entries[d["id"]] = copy.deepcopy(d)
+        elif d.get("updated", "") == here.get("updated", ""):  # same version: keep the photos from both
+            extra = [p for p in entry_photos(d) if p not in entry_photos(here)]
+            if extra:
+                here["photos"] = entry_photos(here) + extra
+    done = sorted((e for k, e in entries.items() if not (k in deleted and deleted[k] >= e.get("updated", ""))),
+                  key=lambda d: (d.get("date", ""), d["id"]))
+    stamps = dict(a["stamps"])
+    for k, v in b["stamps"].items():
+        if k not in stamps or v[1] > stamps[k][1]:
+            stamps[k] = v
+    merged = {"done": done, "deleted": deleted, "stamps": stamps}
+    for kind in ("favourites", "retired"):
+        names = list(dict.fromkeys(a[kind] + b[kind]))
+        merged[kind] = [n for n in names if stamps.get(f"{kind}:{n}", [True])[0]]
+    ideas = {}
+    for idea in a["my_ideas"] + b["my_ideas"]:
+        ideas.setdefault(idea.get("name"), idea)
+    merged["my_ideas"] = [i for n, i in ideas.items() if stamps.get(f"my_ideas:{n}", [True])[0]]
+    shared = dict(a["shared"])
+    for k, v in b["shared"].items():
+        if k not in shared or v[1] > shared[k][1]:
+            shared[k] = v
+    merged["shared"] = shared
+    return merged
 
 
 # "Not this one": out for the rest of this session, and back next time unless you've already done it
@@ -263,9 +353,7 @@ def say_no(memories: dict, skipped: set, name: str) -> bool:
     """Skips an idea for this session. If you've already done it, it stays out for good (True)."""
     skipped.add(name)
     if any(d.get("name") == name for d in memories.get("done", [])):
-        retired = memories.setdefault("retired", [])
-        if name not in retired:
-            retired.append(name)
+        set_flag(memories, "retired", name, True)
         return True
     return False
 
@@ -273,7 +361,7 @@ def say_no(memories: dict, skipped: set, name: str) -> bool:
 def bring_back(memories: dict, skipped: set, name: str) -> None:
     skipped.discard(name)
     if name in memories.get("retired", []):
-        memories["retired"].remove(name)
+        set_flag(memories, "retired", name, False)
 
 
 def entry_photos(entry: dict) -> list[str]:
@@ -286,6 +374,9 @@ def entry_photos(entry: dict) -> list[str]:
 
 def normalise_entry(entry: dict) -> dict:
     entry = dict(entry)
+    if not entry.get("id"):  # older dates get an id from what they are, so every device agrees on it
+        key = f"{entry.get('name', '')}|{entry.get('date', '')}".encode()
+        entry["id"] = "d-" + hashlib.sha1(key).hexdigest()[:16]
     photos = entry_photos(entry)
     entry.pop("photo", None)
     if photos:
@@ -696,39 +787,28 @@ def make_backup(memories: dict, photos_dir: Path | None = None) -> dict:
             "memories": memories, "photos": photos}
 
 
+def count_changes(before: dict, after: dict) -> int:
+    """Roughly how many things a merge brought in: new or changed dates, photos, favourites and ideas."""
+    before, after = sync_shape(before), sync_shape(after)
+    old = {d["id"]: d for d in before["done"]}
+    n = 0
+    for d in after["done"]:
+        if d["id"] not in old:
+            n += 1
+        elif d != old[d["id"]]:
+            n += max(1, len(set(entry_photos(d)) - set(entry_photos(old[d["id"]]))))
+    n += len(set(old) - {d["id"] for d in after["done"]})
+    for kind in ("favourites", "retired"):
+        n += len(set(after[kind]) ^ set(before[kind]))
+    n += len({i.get("name") for i in after["my_ideas"]} ^ {i.get("name") for i in before["my_ideas"]})
+    return n
+
+
 def merge_memories(mine: dict, theirs: dict) -> tuple[dict, int]:
     """Adds anything from another backup that isn't here yet. Returns the merged memories and how many
     things were new."""
-    merged = {k: list(mine.get(k, [])) for k in ("favourites", "done", "my_ideas", "retired")}
-    added = 0
-    for key in ("favourites", "retired"):
-        for name in theirs.get(key, []):
-            if name not in merged[key]:
-                merged[key].append(name)
-                added += 1
-    merged["done"] = [normalise_entry(d) for d in merged["done"]]
-    by_key = {(d.get("name"), d.get("date")): d for d in merged["done"]}
-    for d in theirs.get("done", []):
-        d = normalise_entry(d)
-        key = (d.get("name"), d.get("date"))
-        if key not in by_key:
-            merged["done"].append(d)
-            by_key[key] = d
-            added += 1
-        else:  # the same date logged on both devices: keep every photo from either
-            here = by_key[key]
-            extra = [p for p in entry_photos(d) if p not in entry_photos(here)]
-            if extra:
-                here["photos"] = entry_photos(here) + extra
-                added += len(extra)
-    merged["done"].sort(key=lambda d: d.get("date", ""))
-    names = {i.get("name") for i in merged["my_ideas"]}
-    for idea in theirs.get("my_ideas", []):
-        if idea.get("name") not in names:
-            merged["my_ideas"].append(idea)
-            names.add(idea.get("name"))
-            added += 1
-    return merged, added
+    merged = merge_sync(mine, theirs)
+    return merged, count_changes(mine, merged)
 
 
 def restore_backup(backup: dict, mine: dict, photos_dir: Path | None = None) -> tuple[dict, int]:
@@ -821,3 +901,139 @@ footer {{ text-align:center; color:var(--muted); margin-top: 30px; font-size: 32
 <footer>&#9829; &#9829; &#9829;</footer>
 </main></body></html>
 """
+
+
+# Syncing between devices through your own free Supabase project (see sync/README.md)
+
+PAIRING_PREFIX = "datenight-sync:"
+MAX_PHOTO_CHARS = 3_500_000  # about 2.6 MB of photo once encoded
+
+
+class SyncError(Exception):
+    pass
+
+
+def new_sync_code() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def make_pairing(config: dict) -> str:
+    raw = json.dumps({"u": config["url"], "k": config["key"], "c": config["code"]}, separators=(",", ":"))
+    return PAIRING_PREFIX + base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def parse_pairing(text: str) -> dict | None:
+    text = (text or "").strip()
+    if not text.startswith(PAIRING_PREFIX):
+        return None
+    body = text[len(PAIRING_PREFIX):]
+    try:
+        data = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        config = {"url": clean_url(data["u"]), "key": data["k"].strip(), "code": data["c"].strip()}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return config if config["url"] and config["key"] and len(config["code"]) >= 24 else None
+
+
+def clean_url(url: str) -> str:
+    url = (url or "").strip().rstrip("/")
+    if url and not url.startswith("https://") and not url.startswith("http://127.0.0.1"):
+        url = "https://" + url.removeprefix("http://")
+    return url
+
+
+class SyncClient:
+    """Talks to the four small functions that sync/supabase.sql adds to your Supabase project."""
+
+    def __init__(self, url: str, key: str, code: str, timeout: float = 20):
+        self.url, self.key, self.code, self.timeout = clean_url(url), key.strip(), code, timeout
+
+    def _rpc(self, name: str, payload: dict):
+        headers = {"apikey": self.key, "Content-Type": "application/json", "User-Agent": "DateNightPicker"}
+        if self.key.startswith("eyJ"):  # older "anon" keys are JWTs and go in Authorization too
+            headers["Authorization"] = f"Bearer {self.key}"
+        req = urllib.request.Request(f"{self.url}/rest/v1/rpc/{name}", data=json.dumps(payload).encode(),
+                                     headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                body = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            with exc:
+                detail = exc.read().decode("utf-8", "replace")[:200]
+            if exc.code == 404:
+                raise SyncError("The sync functions aren't set up yet: run sync/supabase.sql in Supabase") from exc
+            if exc.code in (401, 403):
+                raise SyncError("Supabase didn't accept the key. Check the project URL and key") from exc
+            raise SyncError(f"Supabase said {exc.code}: {detail}") from exc
+        except (OSError, ValueError) as exc:
+            raise SyncError("Can't reach Supabase (offline?)") from exc
+        return json.loads(body) if body else None
+
+    def pull(self) -> tuple[dict, list[str], str | None]:
+        r = self._rpc("dn_pull", {"p_code": self.code}) or {}
+        return r.get("doc") or {}, list(r.get("photos") or []), r.get("version")
+
+    def push(self, doc: dict, version: str | None) -> bool:
+        return bool(self._rpc("dn_push", {"p_code": self.code, "p_doc": doc, "p_expected": version}))
+
+    def put_photo(self, name: str, data: str) -> None:
+        self._rpc("dn_photo_put", {"p_code": self.code, "p_name": name, "p_data": data})
+
+    def get_photos(self, names: list[str]) -> dict:
+        return self._rpc("dn_photo_get", {"p_code": self.code, "p_names": names}) or {}
+
+
+def photo_for_upload(path: Path) -> str | None:
+    """A photo as text for uploading, shrunk with Pillow if it's big. None if it's too big to send."""
+    data = path.read_bytes()
+    if len(data) * 4 // 3 > MAX_PHOTO_CHARS:
+        try:
+            import io
+            from PIL import Image
+            img = Image.open(io.BytesIO(data))
+            img.thumbnail((1600, 1600))
+            out = io.BytesIO()
+            img.convert("RGB").save(out, "JPEG", quality=85)
+            data = out.getvalue()
+        except Exception:  # noqa: BLE001 - no Pillow or an unreadable photo: skip it
+            return None
+        if len(data) * 4 // 3 > MAX_PHOTO_CHARS:
+            return None
+    return base64.b64encode(data).decode("ascii")
+
+
+def _same(a: dict, b: dict) -> bool:
+    return json.dumps(sync_shape(a), sort_keys=True) == json.dumps(sync_shape(b), sort_keys=True)
+
+
+def sync_once(client: SyncClient, memories: dict, photos_dir: Path | None = None) -> tuple[dict, dict]:
+    """One round of syncing: fetch what the other devices saved, combine it with ours, save the result
+    back, then swap any missing photos. Returns the combined memories and what happened."""
+    photos_dir = photos_dir or PHOTOS_DIR
+    for _attempt in range(5):
+        doc, server_photos, version = client.pull()
+        merged = merge_sync(memories, doc)
+        if _same(merged, doc) or client.push(merged, version):
+            break
+    else:
+        raise SyncError("Another device kept saving at the same moment. It'll try again shortly")
+    stats = {"changes": count_changes(memories, merged), "uploaded": 0, "downloaded": 0, "too_big": 0}
+    wanted = list(dict.fromkeys(p for d in merged["done"] for p in entry_photos(d)))
+    for name in wanted:
+        path = photos_dir / Path(name).name
+        if name not in server_photos and path.is_file():
+            data = photo_for_upload(path)
+            if data is None:
+                stats["too_big"] += 1
+                continue
+            client.put_photo(name, data)
+            stats["uploaded"] += 1
+    missing = [n for n in wanted if n in server_photos and not (photos_dir / Path(n).name).exists()]
+    for k in range(0, len(missing), 4):
+        for name, data in client.get_photos(missing[k:k + 4]).items():
+            safe = Path(name).name
+            if safe and data:
+                photos_dir.mkdir(parents=True, exist_ok=True)
+                (photos_dir / safe).write_bytes(base64.b64decode(data))
+                stats["downloaded"] += 1
+    return merged, stats

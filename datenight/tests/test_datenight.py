@@ -117,7 +117,7 @@ def test_favourites_are_picked_more_and_done_dates_and_rainy_walks_less():
 
 def test_memories_round_trip_and_your_ideas_join_the_list(tmp_path):
     path = tmp_path / "memories.json"
-    assert dn.load_memories(path) == {"favourites": [], "done": [], "my_ideas": []}
+    assert dn.load_memories(path) == {"favourites": [], "done": [], "my_ideas": [], "retired": []}
     mine = {"name": "Chips at Skegness", "where": "Skegness", "minutes": 60, "cost": 20, "vibes": ["outside"],
             "about": "Seaside."}
     assert dn.save_memories({"favourites": ["Walk"], "done": [], "my_ideas": [mine, {"name": "broken"}]}, path)
@@ -318,3 +318,19 @@ def test_year_review_shows_every_photo(tmp_path):
     page = dn.year_review_html([{"name": "Walk", "date": "2026-05-01", "photos": ["a.png", "b.png", "c.png"]}],
                                2026, photos_dir=tmp_path)
     assert page.count("data:image/png;base64") == 3 and 'class="more"' in page
+
+
+def test_not_this_one_is_for_this_session_unless_you_have_done_it():
+    memories = {"favourites": [], "done": [{"name": "Bradgate Park walk", "date": "2026-01-01"}], "my_ideas": [],
+                "retired": []}
+    skipped = set()
+    assert dn.say_no(memories, skipped, "Warwick Castle") is False
+    assert dn.say_no(memories, skipped, "Bradgate Park walk") is True
+    names = {i["name"] for i in dn.still_on(IDEAS, skipped, memories["retired"])}
+    assert "Warwick Castle" not in names and "Bradgate Park walk" not in names
+    next_session = {i["name"] for i in dn.still_on(IDEAS, set(), memories["retired"])}
+    assert "Warwick Castle" in next_session and "Bradgate Park walk" not in next_session
+    dn.bring_back(memories, skipped, "Bradgate Park walk")
+    assert memories["retired"] == [] and "Bradgate Park walk" in {i["name"] for i in dn.still_on(IDEAS, skipped, [])}
+    merged, added = dn.merge_memories({"retired": []}, {"retired": ["Warwick Castle"]})
+    assert merged["retired"] == ["Warwick Castle"] and added == 1

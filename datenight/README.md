@@ -9,6 +9,8 @@ A pink, heart-covered desktop app that picks a date night for you and your girlf
 
 Then press **Pick our date night** (or Enter/Space). A heart spins round the disc with a little chime, the ideas shuffle, it lands on one with a burst of hearts, and it adds a random **cute twist** (like "wear matching colours"). **Directions** opens Google Maps from LE8 8AL, **Open?** checks today's opening hours, and **Pick another** rolls again without repeating recent picks.
 
+**Not this one** says no to the idea and picks another straight away. It won't come up again for the rest of this session (until you close the app, or the tab on a phone). Next time you open the app, it's back in the mix, unless you've already done it. Ideas you've already done that you say no to stay out for good. **Memories** lists today's skips and the ones you've said no to for good, each with a **Bring back** button.
+
 ## Everything it can do
 
 **Picking**

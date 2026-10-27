@@ -147,6 +147,7 @@ class App:
         self.ideas = merge_my_ideas(ideas, self.memories["my_ideas"])
         self.twists = twists or ["Hold hands the whole time."]
         self.recent: deque = deque(maxlen=30)
+        self.skipped: set[str] = set()  # "Not this one" for this session only
         self.spinning = False
         self.current: dict | None = None
         self.floaters: list[list] = []
@@ -250,15 +251,18 @@ class App:
         self.did = PinkButton(c, (x + 98, 560, x + 188, 594), "We did it!", self.open_did_it, **small)
         self.share = PinkButton(c, (x + 196, 560, x + 286, 594), "Copy for her", self.copy_for_her, **small)
         self.cal = PinkButton(c, (x + 294, 560, x + 384, 594), "Calendar", self.open_calendar, **small)
-        self.directions = PinkButton(c, (x, 606, x + 130, 642), "Directions", self.open_directions, size=10,
+        self.directions = PinkButton(c, (x, 606, x + 98, 642), "Directions", self.open_directions, size=10,
                                      fill=BLUSH, hover=HOT, fg=DEEP)
-        self.again = PinkButton(c, (x + 138, 606, x + 286, 642), f"Pick another {HEART}", self.spin, size=10,
+        self.nope = PinkButton(c, (x + 104, 606, x + 210, 642), "Not this one", self.not_this_one, size=10,
+                               fill=BLUSH, hover=HOT, fg=DEEP)
+        self.again = PinkButton(c, (x + 216, 606, x + 318, 642), "Pick another", self.spin, size=10,
                                 fill=BLUSH, hover=HOT, fg=DEEP)
-        self.hours = PinkButton(c, (x + 294, 606, x + 384, 642), "Open?", self.check_hours, size=10,
+        self.hours = PinkButton(c, (x + 324, 606, x + 384, 642), "Open?", self.check_hours, size=10,
                                 fill=BLUSH, hover=HOT, fg=DEEP)
         self.surprise_note = c.create_text(x + self.CARD_W, 546, text="", font=(FONT, 9, "italic"),
                                            fill=MUTED, anchor="e")
-        self.card_buttons = (self.fav, self.did, self.share, self.cal, self.directions, self.again, self.hours)
+        self.card_buttons = (self.fav, self.did, self.share, self.cal, self.directions, self.nope, self.again,
+                             self.hours)
         for button in self.card_buttons:
             button.set_enabled(False)
         self.count = c.create_text(x + self.CARD_W, 124, font=(FONT, 9), fill=MUTED, anchor="ne")
@@ -383,8 +387,24 @@ class App:
             button.set_look(HOT if key == when else BLUSH, "white" if key == when else DEEP)
         self._update_count()
 
+    def _still_on(self, ideas):
+        return still_on(ideas, self.skipped, self.memories["retired"])
+
     def _candidates(self):
-        return matching(self.ideas, self.budget, self.minutes, self.vibe, self.when, date.today().month)
+        return self._still_on(matching(self.ideas, self.budget, self.minutes, self.vibe, self.when,
+                                       date.today().month))
+
+    def not_this_one(self):
+        if self.spinning or not self.current:
+            return
+        name = self.current["name"]
+        for_good = say_no(self.memories, self.skipped, name)
+        if for_good:
+            self._store()
+        self._update_count()
+        self.spin()
+        self.toast("You've done that one, so it won't come up again (Memories can bring it back)" if for_good
+                   else f"Not that one {HEART} it's out until you next open the app")
 
     def _weigher(self):
         favourites = set(self.memories["favourites"])
@@ -480,6 +500,7 @@ class App:
         self._layout_card()
         self.go.set_enabled(True)
         self.again.set_enabled(True)
+        self.nope.set_enabled(True)
         self.directions.set_text("Directions" if self.revealed else f"Reveal {HEART}")
         self.directions.set_enabled(not self.revealed or directions_url(idea) is not None)
         for button in (self.fav, self.did):
@@ -500,8 +521,10 @@ class App:
         c.itemconfig(self.name, text="No ideas fit that yet", fill=INK)
         c.itemconfig(self.where, text="")
         c.itemconfig(self.facts, text="")
-        c.itemconfig(self.about, text="Try a bigger budget, a longer drive, or click the heart in the middle "
-                                      "of the disc for any vibe.")
+        said_no = matching(self.ideas, self.budget, self.minutes, self.vibe, self.when, date.today().month)
+        c.itemconfig(self.about, text="You've said no to everything that fits. Bring them back in Memories, or "
+                                      "change your answers." if said_no else
+                     "Try a bigger budget, a longer drive, or click the heart in the middle of the disc for any vibe.")
         self._hide_twist()
         self._layout_card()
         for button in self.card_buttons:
@@ -864,7 +887,28 @@ class App:
             text.insert("end", "\n", "gap")
 
         by_name = {i["name"]: i for i in self.ideas}
-        favs = [by_name[n] for n in self.memories["favourites"] if n in by_name]
+        favs = self._still_on([by_name[n] for n in self.memories["favourites"] if n in by_name])
+
+        def bring(names):
+            for n in names:
+                bring_back(self.memories, self.skipped, n)
+            self._store()
+            self._update_count()
+            refresh()
+            self.toast(f"Back in the mix {HEART}")
+        if self.skipped - set(self.memories["retired"]):
+            today_only = sorted(self.skipped - set(self.memories["retired"]))
+            text.insert("end", "\nSkipped today   ", "h")
+            text.window_create("end", window=small("Bring them all back", lambda: bring(today_only)))
+            text.insert("end", "\n" + ", ".join(today_only) + "\n", "muted")
+            text.insert("end", "They come back by themselves next time you open the app.\n", "muted")
+        if self.memories["retired"]:
+            text.insert("end", "\nSaid no to for good\n", "h")
+            text.insert("end", "Dates you'd already done and said \u201cNot this one\u201d to.\n", "muted")
+            for n in list(self.memories["retired"]):
+                text.insert("end", f"{n}  ")
+                text.window_create("end", window=small("Bring back", lambda n=n: bring([n])))
+                text.insert("end", "\n")
         text.insert("end", "\nOur favourites\n", "h")
         if not favs:
             text.insert("end", f"None yet. Press \"{HEART} Save\" on an idea you like.\n\n", "muted")
@@ -1240,7 +1284,8 @@ class App:
                        for k, (b, m, vs) in prefs.items()}
             self.settings["both"] = answers
             self._save()
-            candidates = both_match(self.ideas, answers["a"], answers["b"], self.when, date.today().month)
+            candidates = self._still_on(both_match(self.ideas, answers["a"], answers["b"], self.when,
+                                                   date.today().month))
             if not candidates:
                 return error.config(text="Nothing fits you both yet. Try a bigger budget, a longer drive or more vibes.")
             win.destroy()

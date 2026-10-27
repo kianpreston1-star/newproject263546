@@ -77,7 +77,7 @@ input[type=range]::-moz-range-thumb { width: 32px; height: 32px; border: 0; back
 #about { margin: 0 0 12px; font-size: 16px; line-height: 1.4; }
 .twist { background: var(--blush); border: 1px solid var(--edge); border-radius: 14px; padding: 10px 12px; color: var(--deeper); font-style: italic; font-size: 14px; }
 .actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 14px; }
-.actions.two { grid-template-columns: 1fr 1fr 1fr; }
+.actions.two { grid-template-columns: 1fr 1fr 1fr 0.7fr; }
 .btn { border: 0; border-radius: 14px; padding: 10px 4px; font: inherit; font-size: 13px; font-weight: 700; background: var(--blush); color: var(--deep); cursor: pointer; }
 .btn.on { background: var(--hot); color: #fff; }
 .btn:disabled { background: var(--off); color: #fff; }
@@ -177,7 +177,8 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
     </div>
     <div class="actions two">
       <button class="btn" id="directions" disabled>Directions</button>
-      <button class="btn" id="again" disabled>Pick another &#9829;</button>
+      <button class="btn" id="nope" disabled>Not this one</button>
+      <button class="btn" id="again" disabled>Pick another</button>
       <button class="btn" id="hours" disabled>Open?</button>
     </div>
   </section>
@@ -218,6 +219,7 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
     <button class="btn primary" id="mem-log">+ Log a date &#9829;</button>
   </div>
   <div id="mem-list"></div>
+  <div id="mem-skipped"></div>
   <h3 style="color:var(--deep)">Our favourites</h3>
   <div id="mem-favs"></div>
   <div class="dlg-buttons">
@@ -552,11 +554,11 @@ const photoDB = {
 const mimeFor = (name) => /\.png$/i.test(name) ? "image/png" : /\.gif$/i.test(name) ? "image/gif" : "image/jpeg";
 function entryPhotos(d) { const p = [...(d.photos || [])]; if (d.photo && !p.includes(d.photo)) p.unshift(d.photo); return p; }
 function normaliseEntry(d) { const e = { ...d }, p = entryPhotos(e); delete e.photo; if (p.length) e.photos = p; else delete e.photos; return e; }
-function loadMemories() { const m = store.get("memories", {}); return { favourites: m.favourites || [], done: (m.done || []).map(normaliseEntry), my_ideas: m.my_ideas || [] }; }
+function loadMemories() { const m = store.get("memories", {}); return { favourites: m.favourites || [], done: (m.done || []).map(normaliseEntry), my_ideas: m.my_ideas || [], retired: m.retired || [] }; }
 function mergeMemories(mine, theirs) {
-  const merged = { favourites: [...mine.favourites], done: [...mine.done], my_ideas: [...mine.my_ideas] };
+  const merged = { favourites: [...mine.favourites], done: [...mine.done], my_ideas: [...mine.my_ideas], retired: [...(mine.retired || [])] };
   let added = 0;
-  for (const f of theirs.favourites || []) if (!merged.favourites.includes(f)) { merged.favourites.push(f); added++; }
+  for (const key of ["favourites", "retired"]) for (const f of theirs[key] || []) if (!merged[key].includes(f)) { merged[key].push(f); added++; }
   merged.done = merged.done.map(normaliseEntry);
   const byKey = new Map(merged.done.map((d) => [d.name + "|" + d.date, d]));
   for (const raw of theirs.done || []) {
@@ -692,14 +694,24 @@ for (const id of ["budget", "minutes"]) {
 }
 
 const month = () => new Date().getMonth() + 1;
-const candidates = () => matching(state.ideas, state.budget, state.minutes, state.vibe, state.when, month());
+// "Not this one": out for this session (until the app or tab is closed); back next time unless you've done it
+const skipped = new Set((() => { try { return JSON.parse(sessionStorage.getItem("datenight.skipped")) || []; } catch { return []; } })());
+const saveSkipped = () => { try { sessionStorage.setItem("datenight.skipped", JSON.stringify([...skipped])); } catch { } };
+const stillOn = (list) => list.filter((i) => !skipped.has(i.name) && !state.memories.retired.includes(i.name));
+function sayNo(name) {
+  skipped.add(name); saveSkipped();
+  if (state.memories.done.some((d) => d.name === name)) { if (!state.memories.retired.includes(name)) state.memories.retired.push(name); saveMemories(); return true; }
+  return false;
+}
+function bringBack(name) { skipped.delete(name); saveSkipped(); state.memories.retired = state.memories.retired.filter((n) => n !== name); saveMemories(); }
+const candidates = () => stillOn(matching(state.ideas, state.budget, state.minutes, state.vibe, state.when, month()));
 function updateCount() { const n = candidates().length; $("count").textContent = `${HEART} ${n} idea${n !== 1 ? "s" : ""} match`; }
 function weigher() {
   const favs = new Set(state.memories.favourites), done = new Set(state.memories.done.map((d) => d.name));
   const soon = occasionSoon(state.settings, new Date()), mo = month();
   return (i) => weight(i, favs, done, state.rainy, mo, soon);
 }
-const cardButtons = ["fav", "did", "share", "cal", "directions", "again", "hours"];
+const cardButtons = ["fav", "did", "share", "cal", "directions", "nope", "again", "hours"];
 
 function spin() {
   if (state.spinning || !state.ideas.length) return;
@@ -758,7 +770,7 @@ function show(i, newTwist, reveal) {
   }
   $("facts").textContent = facts;
   $("twist").hidden = false; $("twist").textContent = `${HEART} Cute twist: ${state.twist}`;
-  $("go").disabled = false; $("again").disabled = false; $("share").disabled = false; $("cal").disabled = false;
+  $("go").disabled = false; $("again").disabled = false; $("nope").disabled = false; $("share").disabled = false; $("cal").disabled = false;
   $("directions").textContent = state.revealed ? "Directions" : `Reveal ${HEART}`;
   $("directions").disabled = state.revealed && !directionsUrl(i);
   $("fav").disabled = $("did").disabled = !state.revealed;
@@ -771,7 +783,9 @@ function showNone() {
   $("kicker").textContent = `${HEART} NOTHING MATCHES ${HEART}`;
   $("name").textContent = "No ideas fit that yet";
   $("where").textContent = $("facts").textContent = "";
-  $("about").textContent = "Try a bigger budget, a longer drive, another time of day, or tap the heart in the middle of the disc for any vibe.";
+  $("about").textContent = matching(state.ideas, state.budget, state.minutes, state.vibe, state.when, month()).length
+    ? "You've said no to everything that fits. Bring them back in Memories, or change your answers."
+    : "Try a bigger budget, a longer drive, another time of day, or tap the heart in the middle of the disc for any vibe.";
   $("twist").hidden = true;
   cardButtons.forEach((b) => $(b).disabled = true);
 }
@@ -783,6 +797,12 @@ function refreshFav() {
 
 $("go").onclick = spin;
 $("again").onclick = spin;
+$("nope").onclick = () => {
+  if (state.spinning || !state.current) return;
+  const forGood = sayNo(state.current.name);
+  updateCount(); spin();
+  toast(forGood ? "You've done that one, so it won't come up again (Memories can bring it back)" : `Not that one ${HEART} it's out until you next open the app`);
+};
 $("fav").onclick = () => {
   const favs = state.memories.favourites, n = state.current.name, k = favs.indexOf(n);
   if (k >= 0) { favs.splice(k, 1); toast("Removed from favourites"); } else { favs.push(n); toast(`Saved to favourites ${HEART} it'll come up more often`); }
@@ -958,7 +978,15 @@ async function openMemories() {
     };
   }
   const byName = new Map(state.ideas.map((i) => [i.name, i]));
-  const favs = state.memories.favourites.map((n) => byName.get(n)).filter(Boolean);
+  const favs = stillOn(state.memories.favourites.map((n) => byName.get(n)).filter(Boolean));
+  const todayOnly = [...skipped].filter((n) => !state.memories.retired.includes(n));
+  let skippedHtml = "";
+  if (todayOnly.length) skippedHtml += `<h3 style="color:var(--deep)">Skipped today</h3><p class="muted">${todayOnly.map(esc).join(", ")}</p><p class="muted">They come back by themselves next time you open the app.</p><button class="btn" data-bring-all>Bring them all back</button>`;
+  if (state.memories.retired.length) skippedHtml += `<h3 style="color:var(--deep)">Said no to for good</h3><p class="muted">Dates you'd already done and said \u201cNot this one\u201d to.</p>` +
+    state.memories.retired.map((n, k) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:4px 0">${esc(n)} <button class="btn" data-bring="${k}">Bring back</button></div>`).join("");
+  $("mem-skipped").innerHTML = skippedHtml;
+  $("mem-skipped").querySelector("[data-bring-all]")?.addEventListener("click", async () => { todayOnly.forEach(bringBack); updateCount(); await openMemories(); toast(`Back in the mix ${HEART}`); });
+  $("mem-skipped").querySelectorAll("[data-bring]").forEach((b) => b.onclick = async () => { bringBack(state.memories.retired[+b.dataset.bring]); updateCount(); await openMemories(); toast(`Back in the mix ${HEART}`); });
   $("mem-favs").innerHTML = favs.length ? favs.map((i) => `<div>${HEART} ${esc(i.name)} <span class="muted">${esc(describeDrive(i.minutes))}, ${esc(describeCost(i.cost).toLowerCase())}</span></div>`).join("") : `<p class="muted">None yet. Tap "${HEART} Save" on an idea you like.</p>`;
   $("mem-pickfav").hidden = !favs.length;
   $("mem-pickfav").onclick = () => { $("dlg-memories").close(); if (!state.spinning) startShuffle(favs, pick(favs, state.recent), null); };
@@ -1059,7 +1087,7 @@ $("both-go").onclick = () => {
   const answers = {};
   $("both-sides").querySelectorAll(".side").forEach((s) => answers[s.dataset.side] = { budget: +s.querySelector("[name=budget]").value, minutes: +s.querySelector("[name=minutes]").value, vibes: [...s.querySelectorAll("input:checked")].map((c) => c.value) });
   state.settings.both = answers; saveSettings();
-  const list = bothMatch(state.ideas, answers.a, answers.b, state.when, month());
+  const list = stillOn(bothMatch(state.ideas, answers.a, answers.b, state.when, month()));
   if (!list.length) return $("both-err").textContent = "Nothing fits you both yet. Try a bigger budget, a longer drive or more vibes.";
   $("dlg-both").close();
   if (!state.spinning) startShuffle(list, pick(list, state.recent, weigher()), "YOU BOTH SAID YES");

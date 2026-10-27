@@ -249,7 +249,31 @@ def load_memories(path: Path | None = None) -> dict:
     except (OSError, ValueError):
         data = {}
     return {"favourites": list(data.get("favourites", [])), "done": [normalise_entry(d) for d in data.get("done", [])],
-            "my_ideas": list(data.get("my_ideas", []))}
+            "my_ideas": list(data.get("my_ideas", [])), "retired": list(data.get("retired", []))}
+
+
+# "Not this one": out for the rest of this session, and back next time unless you've already done it
+
+def still_on(ideas: list[dict], skipped=(), retired=()) -> list[dict]:
+    """Ideas you haven't said no to this session, or for good."""
+    return [i for i in ideas if i["name"] not in skipped and i["name"] not in retired]
+
+
+def say_no(memories: dict, skipped: set, name: str) -> bool:
+    """Skips an idea for this session. If you've already done it, it stays out for good (True)."""
+    skipped.add(name)
+    if any(d.get("name") == name for d in memories.get("done", [])):
+        retired = memories.setdefault("retired", [])
+        if name not in retired:
+            retired.append(name)
+        return True
+    return False
+
+
+def bring_back(memories: dict, skipped: set, name: str) -> None:
+    skipped.discard(name)
+    if name in memories.get("retired", []):
+        memories["retired"].remove(name)
 
 
 def entry_photos(entry: dict) -> list[str]:
@@ -675,12 +699,13 @@ def make_backup(memories: dict, photos_dir: Path | None = None) -> dict:
 def merge_memories(mine: dict, theirs: dict) -> tuple[dict, int]:
     """Adds anything from another backup that isn't here yet. Returns the merged memories and how many
     things were new."""
-    merged = {k: list(mine.get(k, [])) for k in ("favourites", "done", "my_ideas")}
+    merged = {k: list(mine.get(k, [])) for k in ("favourites", "done", "my_ideas", "retired")}
     added = 0
-    for fav in theirs.get("favourites", []):
-        if fav not in merged["favourites"]:
-            merged["favourites"].append(fav)
-            added += 1
+    for key in ("favourites", "retired"):
+        for name in theirs.get(key, []):
+            if name not in merged[key]:
+                merged[key].append(name)
+                added += 1
     merged["done"] = [normalise_entry(d) for d in merged["done"]]
     by_key = {(d.get("name"), d.get("date")): d for d in merged["done"]}
     for d in theirs.get("done", []):

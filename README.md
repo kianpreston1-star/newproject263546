@@ -1,6 +1,8 @@
 # Cloud AI
 
 > Also in this repository: [**tradebot**](tradebot/README.md), a trend-following trading bot for BNB Chain with backtesting and risk controls.
+>
+> And [**Date Night Picker**](datenight/README.md): a desktop app that picks a date night within an hour of Fleckney.
 
 A free AI chat app that runs in the cloud. It can **search the web, read web pages, run code, create images and save files**. You don't need API keys or a powerful computer. Your browser only displays the page, and the AI runs on [Puter](https://puter.com)'s servers.
 

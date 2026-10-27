@@ -1,0 +1,16 @@
+{
+  "name": "Date Night Picker",
+  "short_name": "Date Night",
+  "description": "Pick a date night from over 1000 ideas within an hour of Fleckney.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffe4ef",
+  "theme_color": "#e0115f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

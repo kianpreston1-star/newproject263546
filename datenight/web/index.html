@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Date Night Picker</title>
+<meta name="description" content="Pick a date night from over 1000 ideas within an hour of Fleckney.">
+<meta name="theme-color" content="#e0115f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Date Night">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+:root {
+  --bg-top: #ffe4ef; --bg-bottom: #ffc2d8; --panel: #fff7fa; --edge: #ffb3cc; --blush: #ffe3ee;
+  --ink: #5a1a35; --muted: #b0607f; --deep: #e0115f; --deeper: #b80d4d; --hot: #ff4d8d; --track: #ffd6e5;
+  --dim: #f6d6e2; --off: #f3c3d4; --inside: #ff4d8d; --outside: #ff8fab; --chill: #d96bd0;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { background: var(--bg-top); }
+body {
+  margin: 0; min-height: 100vh; color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
+  background: linear-gradient(var(--bg-top), var(--bg-bottom)) fixed;
+  padding: max(12px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  overflow-x: hidden;
+}
+main { max-width: 480px; margin: 0 auto; position: relative; z-index: 1; }
+.floaters { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+.floaters span { position: absolute; bottom: -40px; animation: rise linear infinite; opacity: .75; }
+@keyframes rise { to { transform: translate(var(--sway), -115vh); } }
+@media (prefers-reduced-motion: reduce) { .floaters { display: none; } }
+
+header h1 { margin: 6px 0 0; font-size: 28px; color: var(--deep); text-shadow: 2px 2px 0 #fff; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.weather { font-size: 12px; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.pill, .chip {
+  border: 0; border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 700;
+  background: var(--panel); color: var(--deep); cursor: pointer;
+}
+.pill.on, .chip.on { background: var(--deep); color: #fff; }
+.pill.muted { background: var(--off); color: #fff; }
+
+.panel { background: var(--panel); border: 2px solid var(--edge); border-radius: 26px; padding: 18px; margin-bottom: 14px; }
+.q { font-weight: 700; margin: 0 0 6px; font-size: 15px; }
+.row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.row output { min-width: 108px; font-weight: 700; color: var(--deep); text-align: right; }
+input[type=range] { flex: 1; -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; background: var(--track); outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 32px; border: 0; background: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23e0115f' d='M16 29C5 21 2 15 2 10a7 7 0 0 1 14-2 7 7 0 0 1 14 2c0 5-3 11-14 19z'/%3E%3C/svg%3E"); cursor: pointer; }
+input[type=range]::-moz-range-thumb { width: 32px; height: 32px; border: 0; background: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23e0115f' d='M16 29C5 21 2 15 2 10a7 7 0 0 1 14-2 7 7 0 0 1 14 2c0 5-3 11-14 19z'/%3E%3C/svg%3E"); }
+.disc-wrap { text-align: center; }
+#disc { width: 220px; height: 220px; cursor: pointer; touch-action: manipulation; }
+#disc text { font-weight: 700; pointer-events: none; }
+.hint { color: var(--muted); font-size: 13px; text-align: center; margin: 2px 0 12px; }
+.times { display: flex; gap: 6px; flex-wrap: wrap; }
+.times .chip { background: var(--blush); flex: 1; }
+.times .chip.on { background: var(--hot); }
+.go {
+  width: 100%; border: 0; border-radius: 26px; padding: 16px; margin-top: 16px; font: inherit; font-size: 19px;
+  font-weight: 800; color: #fff; background: var(--deep); cursor: pointer; box-shadow: 0 6px 18px rgba(224,17,95,.3);
+}
+.go:active { background: var(--deeper); transform: scale(.99); }
+.go:disabled { background: var(--off); box-shadow: none; }
+
+.card { position: relative; overflow: hidden; }
+.kicker { display: flex; justify-content: space-between; font-size: 11px; font-weight: 800; color: var(--muted); letter-spacing: .05em; }
+.kicker span:last-child { font-weight: 400; letter-spacing: 0; }
+#name { font-size: 26px; margin: 8px 0 2px; line-height: 1.15; }
+#name.shuffling { color: var(--muted); }
+#where { color: var(--deep); font-weight: 700; }
+#facts { color: var(--muted); font-size: 13px; margin: 4px 0 10px; white-space: pre-line; }
+#about { margin: 0 0 12px; font-size: 16px; line-height: 1.4; }
+.twist { background: var(--blush); border: 1px solid var(--edge); border-radius: 14px; padding: 10px 12px; color: var(--deeper); font-style: italic; font-size: 14px; }
+.actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 14px; }
+.actions.two { grid-template-columns: 1fr 1fr 1fr; }
+.btn { border: 0; border-radius: 14px; padding: 10px 4px; font: inherit; font-size: 13px; font-weight: 700; background: var(--blush); color: var(--deep); cursor: pointer; }
+.btn.on { background: var(--hot); color: #fff; }
+.btn:disabled { background: var(--off); color: #fff; }
+.btn.primary { background: var(--deep); color: #fff; }
+.note { text-align: right; font-size: 12px; font-style: italic; color: var(--muted); min-height: 1em; margin-top: 8px; }
+
+dialog {
+  border: 0; border-radius: 26px; padding: 20px; width: min(94vw, 460px); max-height: 88vh; background: var(--panel);
+  color: var(--ink); box-shadow: 0 10px 40px rgba(224,17,95,.25);
+}
+dialog::backdrop { background: rgba(90,26,53,.35); }
+dialog h2 { margin: 0 0 8px; color: var(--deep); }
+dialog label { display: block; font-weight: 700; font-size: 13px; margin: 10px 0 4px; }
+dialog input[type=text], dialog input[type=date], dialog input[type=number], dialog textarea {
+  width: 100%; border: 1px solid var(--edge); border-radius: 12px; padding: 10px; font: inherit; background: #fff; color: var(--ink);
+}
+.dlg-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.dlg-buttons .btn { padding: 10px 16px; }
+.muted { color: var(--muted); font-size: 13px; }
+.err { color: var(--deep); font-size: 13px; min-height: 1em; margin-top: 6px; }
+.rating { font-size: 38px; color: var(--dim); cursor: pointer; user-select: none; letter-spacing: 4px; }
+.rating .on { color: var(--deep); }
+.checks label { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; margin-right: 12px; }
+.sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.side { background: #fff; border: 1px solid var(--edge); border-radius: 16px; padding: 10px; }
+.side h3 { margin: 0 0 6px; color: var(--deep); font-size: 16px; }
+.side output { font-weight: 700; color: var(--deep); font-size: 13px; }
+.side input[type=range] { width: 100%; }
+.mem { border-top: 1px solid var(--dim); padding: 10px 0; }
+.mem .hearts { color: var(--deep); }
+.mem .hearts i { color: var(--off); font-style: normal; }
+.mem img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 14px; margin-top: 6px; }
+.badge { display: inline-block; background: var(--blush); color: var(--deep); border-radius: 999px; padding: 4px 10px; margin: 2px; font-size: 12px; font-weight: 700; }
+#toast {
+  position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(150%);
+  background: var(--deep); color: #fff; font-weight: 700; font-size: 14px; padding: 10px 18px; border-radius: 16px;
+  max-width: 92vw; text-align: center; transition: transform .25s; z-index: 10;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+.burst { position: fixed; pointer-events: none; z-index: 5; animation: burst .9s ease-out forwards; }
+@keyframes burst { to { transform: translate(var(--dx), var(--dy)) scale(.6); opacity: 0; } }
+.loading { text-align: center; color: var(--muted); padding: 40px 0; }
+</style>
+</head>
+<body>
+<div class="floaters" id="floaters" aria-hidden="true"></div>
+<main>
+  <header>
+    <h1>&#9829; Date Night Picker &#9829;</h1>
+    <p id="subtitle">Made with love, for the two of us</p>
+    <p class="weather" id="weather">Checking the weather...</p>
+  </header>
+
+  <nav class="pills">
+    <button class="pill" id="open-memories">Memories &#9829;</button>
+    <button class="pill" id="open-add">+ Idea</button>
+    <button class="pill" id="open-both">Both of us</button>
+    <button class="pill" id="toggle-surprise">Surprise</button>
+    <button class="pill" id="open-settings">Settings</button>
+    <button class="pill" id="toggle-sound">&#9834; On</button>
+  </nav>
+
+  <section class="panel">
+    <p class="q">1. How much would you like to spend?</p>
+    <div class="row"><input type="range" id="budget" min="0" max="200" step="5"><output id="budget-out"></output></div>
+    <p class="q">2. How many minutes' drive from LE8 8AL?</p>
+    <div class="row"><input type="range" id="minutes" min="0" max="60" step="5"><output id="minutes-out"></output></div>
+    <p class="q">3. Spin the love disc: pick a vibe</p>
+    <div class="disc-wrap"><svg id="disc" viewBox="-110 -110 220 220" role="group" aria-label="Pick a vibe"></svg></div>
+    <p class="hint" id="vibe-hint"></p>
+    <p class="q">4. When?</p>
+    <div class="times" id="times"></div>
+    <button class="go" id="go" disabled>&#9829; Pick our date night &#9829;</button>
+  </section>
+
+  <section class="panel card" id="card">
+    <div class="kicker"><span id="kicker">&#9829; TONIGHT'S DATE &#9829;</span><span id="count"></span></div>
+    <h2 id="name">Loading the ideas...</h2>
+    <div id="where"></div>
+    <div id="facts"></div>
+    <p id="about"></p>
+    <div class="twist" id="twist" hidden></div>
+    <div class="note" id="surprise-note"></div>
+    <div class="actions">
+      <button class="btn" id="fav" disabled>&#9829; Save</button>
+      <button class="btn" id="did" disabled>We did it!</button>
+      <button class="btn" id="share" disabled>Share</button>
+      <button class="btn" id="cal" disabled>Calendar</button>
+    </div>
+    <div class="actions two">
+      <button class="btn" id="directions" disabled>Directions</button>
+      <button class="btn" id="again" disabled>Pick another &#9829;</button>
+      <button class="btn" id="hours" disabled>Open?</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="dlg-did">
+  <h2>We did it!</h2>
+  <p id="did-name"><b></b></p>
+  <p class="muted">How was it?</p>
+  <div class="rating" id="rating"></div>
+  <label for="did-note">A little note to remember it by (optional)</label>
+  <input type="text" id="did-note">
+  <label for="did-photo">A photo (optional)</label>
+  <input type="file" id="did-photo" accept="image/*">
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="did-save">Save memory &#9829;</button></div>
+</dialog>
+
+<dialog id="dlg-memories">
+  <h2>Our memories &#9829;</h2>
+  <p class="muted" id="mem-stats"></p>
+  <p id="mem-streak" style="color:var(--deep);font-weight:700;font-size:14px"></p>
+  <div id="mem-badges"></div>
+  <p class="muted" id="mem-next"></p>
+  <div id="mem-list"></div>
+  <h3 style="color:var(--deep)">Our favourites</h3>
+  <div id="mem-favs"></div>
+  <div class="dlg-buttons">
+    <button class="btn" id="mem-review">Year in review</button>
+    <button class="btn" id="mem-backup">Back up</button>
+    <label class="btn" style="margin:0;cursor:pointer">Restore<input type="file" id="mem-restore" accept=".json,application/json" hidden></label>
+    <button class="btn primary" id="mem-pickfav">Pick a favourite &#9829;</button>
+    <button class="btn" data-close>Close</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-add">
+  <h2>Add your own idea</h2>
+  <label for="add-name">Name</label><input type="text" id="add-name" placeholder="Ice cream at the seaside">
+  <label for="add-where">Where</label><input type="text" id="add-where" placeholder="Skegness">
+  <label for="add-maps">Google Maps search (optional)</label><input type="text" id="add-maps">
+  <div class="sides" style="margin-top:4px">
+    <div><label for="add-minutes">Minutes' drive</label><input type="number" id="add-minutes" min="0" max="60" step="5" value="20"></div>
+    <div><label for="add-cost">Cost for two (£)</label><input type="number" id="add-cost" min="0" step="5" value="30"></div>
+  </div>
+  <label>Vibe</label>
+  <div class="checks" id="add-vibes"></div>
+  <label for="add-about">What you'll do</label><input type="text" id="add-about">
+  <div class="err" id="add-err"></div>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="add-save">Add idea &#9829;</button></div>
+</dialog>
+
+<dialog id="dlg-settings">
+  <h2>Settings &#9829;</h2>
+  <label for="set-you">Your name</label><input type="text" id="set-you">
+  <label for="set-her">Her name</label><input type="text" id="set-her">
+  <label for="set-anniversary">Anniversary</label><input type="date" id="set-anniversary">
+  <label for="set-herbday">Her birthday</label><input type="date" id="set-herbday">
+  <label for="set-yourbday">Your birthday</label><input type="date" id="set-yourbday">
+  <p class="muted">Dates power the countdown at the top, and special dates come up more often in the two weeks before.</p>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="set-save">Save &#9829;</button></div>
+</dialog>
+
+<dialog id="dlg-both">
+  <h2>Both say yes &#9829;</h2>
+  <p class="muted">Each of you answers on your own side. Only dates you'd both say yes to get picked.</p>
+  <div class="sides" id="both-sides"></div>
+  <div class="err" id="both-err"></div>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button><button class="btn primary" id="both-go">Find a date we both love &#9829;</button></div>
+</dialog>
+
+<dialog id="dlg-cal">
+  <h2>Add to calendar</h2>
+  <p class="muted" id="cal-info"></p>
+  <div id="cal-days" style="display:grid;gap:6px"></div>
+  <div class="dlg-buttons"><button class="btn" data-close>Cancel</button></div>
+</dialog>
+
+<dialog id="dlg-share">
+  <h2>Send her the plan</h2>
+  <p class="muted">Copy this and paste it into WhatsApp or a text.</p>
+  <textarea id="share-text" rows="8" readonly></textarea>
+  <div class="dlg-buttons"><button class="btn primary" id="share-copy">Copy</button><button class="btn" data-close>Close</button></div>
+</dialog>
+
+<script>
+"use strict";
+// The same logic as datecore.py, so the phone and the laptop pick the same way and share backups.
+const HEART = "\u2665";
+const HOME_POSTCODE = "LE8 8AL";
+const FLECKNEY = [52.535, -1.046];
+const VIBES = ["inside", "outside", "chill"];
+const TIMES = ["day", "evening", "late"];
+const TIME_LABELS = { null: "Any time", day: "Daytime", evening: "Evening", late: "Late night" };
+const BUDGET_MAX = 200, DRIVE_MAX = 60;
+const MILESTONES = { 1: "First date logged", 5: "High five", 10: "Perfect ten", 25: "Quarter century",
+  50: "Half century", 75: "Diamond dates", 100: "A hundred dates of love" };
+const OVERPASS_URLS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const todayISO = () => isoDate(new Date());
+function isoDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function parseISO(s) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); if (!m) return null; const d = new Date(+m[1], +m[2] - 1, +m[3]); return d.getMonth() === +m[2] - 1 ? d : null; }
+const DAY = 86400000;
+const daysBetween = (a, b) => Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / DAY);
+
+// Ideas
+
+const DAY_WORDS = ["castle", "zoo", "museum", "garden", "park", "walk", "railway", "hall", "abbey", "house", "wood",
+  "reservoir", "water", "market", "brunch", "coffee", "tea", "races", "cruise", "bike", "cycle", "paddle", "steam",
+  "gallery", "cathedral", "centre", "forest", "ruins", "locks", "lunch", "picnic", "shopping", "trip", "day", "farm",
+  "nature", "snowdome", "skating", "match"];
+const EVENING_WORDS = ["dinner", "theatre", "show", "curry", "pub", "gig", "comedy", "cinema", "sunset", "match", "spa",
+  "restaurant", "music", "concert", "bowling", "escape", "karaoke", "cocktail", "skating"];
+const LATE_WORDS = ["cocktail", "karaoke", "comedy", "gig", "late", "stargaz", "dessert", "cinema", "night"];
+
+function guessTimes(idea) {
+  if (idea.minutes === 0) return [...TIMES];
+  const text = `${idea.name} ${idea.about}`.toLowerCase();
+  const t = [];
+  if (DAY_WORDS.some((w) => text.includes(w))) t.push("day");
+  if (EVENING_WORDS.some((w) => text.includes(w))) t.push("evening");
+  if (LATE_WORDS.some((w) => text.includes(w))) t.push("late");
+  return t.length ? t : ["day", "evening"];
+}
+function check(idea) {
+  for (const f of ["name", "where", "minutes", "cost", "vibes", "about"]) if (!(f in idea)) throw new Error(`${idea.name || "An idea"} is missing ${f}`);
+  idea.maps = idea.maps || "";
+  idea.times = idea.times && idea.times.length ? idea.times : guessTimes(idea);
+  idea.months = idea.months || [];
+  return idea;
+}
+function expand(data) {
+  if (Array.isArray(data)) data = { ideas: data };
+  const ideas = (data.ideas || []).map((i) => check({ ...i }));
+  const towns = data.towns || [];
+  for (const t of data.templates || []) {
+    if (t.sizes) {
+      for (const town of towns) if (t.sizes.includes(town.size)) {
+        const fill = (s) => s.replaceAll("{town}", town.name);
+        ideas.push(check({ name: fill(t.name), where: town.name, minutes: town.minutes, cost: t.cost, vibes: t.vibes,
+          about: fill(t.about), maps: fill(t.maps ?? "{town}"), times: t.times, months: t.months }));
+      }
+    } else for (const x of t.options || []) {
+      const fill = (s) => s.replaceAll("{x}", x);
+      ideas.push(check({ name: fill(t.name), where: t.where, minutes: t.minutes, cost: t.cost, vibes: t.vibes,
+        about: fill(t.about), maps: fill(t.maps || ""), times: t.times, months: t.months }));
+    }
+  }
+  return { ideas, twists: data.twists || ["Hold hands the whole time."] };
+}
+const inSeason = (i, month) => !month || !i.months.length || i.months.includes(month);
+function matching(ideas, budget, minutes, vibe, when, month) {
+  return ideas.filter((i) => (budget >= BUDGET_MAX || i.cost <= budget) && i.minutes <= minutes &&
+    (!vibe || i.vibes.includes(vibe)) && (!when || i.times.includes(when)) && inSeason(i, month));
+}
+function bothMatch(ideas, a, b, when, month) {
+  const la = a.vibes && a.vibes.length ? a.vibes : VIBES, lb = b.vibes && b.vibes.length ? b.vibes : VIBES;
+  return matching(ideas, Math.min(a.budget, b.budget), Math.min(a.minutes, b.minutes), null, when, month)
+    .filter((i) => i.vibes.some((v) => la.includes(v)) && i.vibes.some((v) => lb.includes(v)));
+}
+function isSpecial(i) {
+  const t = i.name.toLowerCase();
+  return i.cost >= 60 || ["fancy", "spa", "afternoon tea", "valentine", "theatre", "show", "candlelit", "love letter"].some((w) => t.includes(w));
+}
+function weight(i, favs, done, rainy, month, soon) {
+  let w = 1;
+  if (favs.has(i.name)) w *= 3;
+  if (done.has(i.name)) w *= 0.25;
+  if (rainy && i.vibes.includes("outside") && !i.vibes.includes("inside")) w *= 0.3;
+  if (month && i.months.length && i.months.length <= 3 && i.months.includes(month)) w *= 3;
+  if (soon && isSpecial(i)) w *= 2.5;
+  return w;
+}
+function pick(candidates, recent, weigh) {
+  if (!candidates.length) return null;
+  const pool = candidates.filter((i) => !recent.includes(i.name));
+  const list = pool.length ? pool : candidates;
+  if (!weigh) return list[Math.floor(Math.random() * list.length)];
+  const ws = list.map(weigh), total = ws.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let k = 0; k < list.length; k++) { r -= ws[k]; if (r <= 0) return list[k]; }
+  return list[list.length - 1];
+}
+const directionsUrl = (i) => i.maps ? `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${encodeURIComponent(HOME_POSTCODE)}&destination=${encodeURIComponent(i.maps + ", UK")}` : null;
+const describeCost = (c) => c === 0 ? "Free" : `About £${c} for two`;
+const describeDrive = (m) => m === 0 ? "No driving" : `About ${m} min drive`;
+function surpriseClues(i) {
+  let wear;
+  if (i.minutes === 0) wear = "You won't even need to leave the house. Comfy clothes are perfect.";
+  else if (i.vibes.includes("outside") && !i.vibes.includes("inside")) wear = "Wear comfy shoes and bring a coat.";
+  else if (i.cost >= 80) wear = "Dress up a bit: it's a fancy one.";
+  else if (i.vibes.includes("chill")) wear = "Something comfy but cute.";
+  else wear = "Wear something nice.";
+  return `Clue: ${describeDrive(i.minutes).toLowerCase()}. ${wear}`;
+}
+function shareText(i, twist) {
+  const lines = [`${HEART} Date night plan ${HEART}`, `${i.name} (${i.where})`, `${describeDrive(i.minutes)}, ${describeCost(i.cost).toLowerCase()}`, i.about];
+  if (twist) lines.push(`Cute twist: ${twist}`);
+  const url = directionsUrl(i); if (url) lines.push(`Directions: ${url}`);
+  return lines.join("\n");
+}
+
+// Calendar
+
+const icsEscape = (t) => t.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+const startTime = (i) => i.vibes.includes("outside") && !i.vibes.includes("inside") ? [11, 0] : [18, 30];
+function makeIcs(i, day, twist) {
+  const [h, m] = startTime(i);
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m), end = new Date(start.getTime() + 3 * 3600000);
+  let about = i.about + (twist ? `\nCute twist: ${twist}` : "");
+  const url = directionsUrl(i); if (url) about += `\nDirections: ${url}`;
+  const now = new Date();
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Date Night Picker//EN", "BEGIN:VEVENT",
+    `UID:${now.getTime()}-${Math.random().toString(36).slice(2)}@datenight`,
+    `DTSTAMP:${now.toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`, `DTSTART:${stamp(start)}`, `DTEND:${stamp(end)}`,
+    `SUMMARY:${icsEscape("Date night: " + i.name)}`, `LOCATION:${icsEscape(i.where)}`, `DESCRIPTION:${icsEscape(about)}`,
+    "BEGIN:VALARM", "TRIGGER:-PT2H", "ACTION:DISPLAY", "DESCRIPTION:Date night soon!", "END:VALARM",
+    "END:VEVENT", "END:VCALENDAR"].join("\r\n") + "\r\n";
+}
+function calendarDays(today) {
+  const add = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() + n);
+  const tomorrow = add(1), sat = add(((5 - ((today.getDay() + 6) % 7)) + 7) % 7 || 7);
+  const days = [["Tonight", today], ["Tomorrow", tomorrow]];
+  if (today.getDay() === 6) days.push(["Next Saturday", sat]);
+  else { if (daysBetween(sat, tomorrow) !== 0) days.push(["This Saturday", sat]); days.push(["Saturday after", new Date(sat.getFullYear(), sat.getMonth(), sat.getDate() + 7)]); }
+  return days;
+}
+
+// Occasions, streaks and badges
+
+function ordinal(n) { const s = n % 100 >= 10 && n % 100 <= 20 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"); return n + s; }
+function nextDate(month, day, today) {
+  for (const y of [today.getFullYear(), today.getFullYear() + 1]) {
+    let d = new Date(y, month - 1, day);
+    if (d.getMonth() !== month - 1) d = new Date(y, 1, 28);
+    if (daysBetween(today, d) >= 0) return d;
+  }
+}
+function occasions(s, today) {
+  const found = [[nextDate(2, 14, today), "Valentine's Day"]];
+  const ann = parseISO(s.anniversary);
+  if (ann) { const w = nextDate(ann.getMonth() + 1, ann.getDate(), today); const yrs = w.getFullYear() - ann.getFullYear(); found.push([w, yrs > 0 ? `our ${ordinal(yrs)} anniversary` : "our anniversary"]); }
+  for (const [key, who] of [["her_birthday", s.her_name || "Her"], ["your_birthday", s.your_name || "Your"]]) {
+    const b = parseISO(s[key]);
+    if (b) found.push([nextDate(b.getMonth() + 1, b.getDate(), today), `${who === "Your" ? "your" : who === "Her" ? "her" : who + "'s"} birthday`]);
+  }
+  return found.map(([w, l]) => [daysBetween(today, w), l, w]).sort((a, b) => a[0] - b[0]);
+}
+function countdownText(s, today) {
+  const [days, label] = occasions(s, today)[0];
+  if (days === 0) return `It's ${label} today!`;
+  if (days === 1) return `${label[0].toUpperCase() + label.slice(1)} is tomorrow!`;
+  return `${days} days until ${label}`;
+}
+const occasionSoon = (s, today) => occasions(s, today).some(([d]) => d <= 14) && !!(s.anniversary || s.her_birthday || s.your_birthday || today.getMonth() === 1);
+function weekStart(d) { return isoDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7))); }
+function dateStreak(done, today) {
+  const weeks = new Set(done.map((d) => parseISO(d.date)).filter(Boolean).map(weekStart));
+  let w = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+  if (!weeks.has(isoDate(w))) w = new Date(w.getTime() - 7 * DAY);
+  let n = 0;
+  while (weeks.has(isoDate(w))) { n++; w = new Date(w.getFullYear(), w.getMonth(), w.getDate() - 7); }
+  return n;
+}
+const datesThisMonth = (done, today) => done.filter((d) => (d.date || "").slice(0, 7) === todayISO().slice(0, 7)).length;
+const badges = (n) => Object.entries(MILESTONES).filter(([k]) => n >= +k).map(([, v]) => v);
+function memoryStats(done) {
+  if (!done.length) return 'No dates logged yet. Press "We did it!" after your next one.';
+  const spent = done.reduce((a, d) => a + (d.cost || 0), 0), rated = done.filter((d) => d.rating).map((d) => d.rating);
+  const vibes = {}; done.forEach((d) => (d.vibes || []).forEach((v) => vibes[v] = (vibes[v] || 0) + 1));
+  const parts = [`${done.length} date${done.length !== 1 ? "s" : ""} together`, `about £${spent} spent`];
+  if (rated.length) parts.push(`average ${(rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1)} hearts`);
+  const top = Object.entries(vibes).sort((a, b) => b[1] - a[1])[0];
+  if (top) parts.push(`favourite vibe: ${top[0]}`);
+  return parts.join(`  ${HEART}  `);
+}
+
+// Weather and opening hours
+
+const WEATHER_WORDS = [[0, "Clear skies"], [3, "Cloudy"], [48, "Foggy"], [57, "Drizzle"], [67, "Rain"], [77, "Snow"], [82, "Showers"], [86, "Snow showers"], [99, "Thunderstorms"]];
+function parseWeather(data) {
+  try {
+    const d = data.daily, code = +d.weather_code[0], top = Math.round(+d.temperature_2m_max[0]), rain = +(d.precipitation_probability_max[0] || 0);
+    const words = (WEATHER_WORDS.find(([l]) => code <= l) || [0, "Mixed"])[1];
+    return { summary: `Today: ${words}, ${top}\u00b0C, ${rain}% chance of rain`, rainy: rain >= 60 || (code >= 51 && code <= 67) || code >= 80 };
+  } catch { return null; }
+}
+const OSM_DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+function hoursOn(oh, day) {
+  const text = oh.trim();
+  if (text === "24/7") return "open 24 hours";
+  const today = OSM_DAYS[(day.getDay() + 6) % 7];
+  let result = null;
+  for (const rule of text.split(";").map((r) => r.trim()).filter(Boolean)) {
+    const m = /^\s*((?:(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?,?)+)?\s*(.*)$/.exec(rule);
+    const daysPart = m[1], times = m[2].trim();
+    if (/[A-Z][a-z]{2}|PH|SH|week|\[|easter|sunrise|sunset|\+/.test(times) && times !== "off" && times !== "closed") return null;
+    if (daysPart) {
+      const covered = new Set();
+      for (const chunk of daysPart.split(",").filter(Boolean)) {
+        if (chunk.includes("-")) {
+          let [a, b] = chunk.split("-").map((x) => OSM_DAYS.indexOf(x));
+          for (let k = a; ; k = (k + 1) % 7) { covered.add(OSM_DAYS[k]); if (k === b) break; }
+        } else covered.add(chunk);
+      }
+      if (!covered.has(today)) continue;
+    }
+    if (times === "off" || times === "closed") result = "closed";
+    else if (/^\d\d:\d\d-\d\d:\d\d(,\s*\d\d:\d\d-\d\d:\d\d)*$/.test(times)) result = times.replace(/,\s*/g, ", ");
+    else return null;
+  }
+  return result || "closed";
+}
+async function fetchOpeningHours(i) {
+  for (const q of [...new Set([i.maps, i.name].filter(Boolean))]) {
+    const pattern = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const query = `[out:json][timeout:8];nwr["name"~"^${pattern}$",i]["opening_hours"](around:75000,${FLECKNEY[0]},${FLECKNEY[1]});out tags 1;`;
+    let found = null;
+    for (const url of OVERPASS_URLS) {
+      try {
+        const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(query), signal: AbortSignal.timeout(13000) });
+        found = (await r.json()).elements || []; break;
+      } catch { found = null; }
+    }
+    if (found === null) return null;
+    if (found.length) return [found[0].tags.name || q, found[0].tags.opening_hours];
+  }
+  return null;
+}
+
+// Storage: settings and memories in localStorage, photos in IndexedDB
+
+const store = {
+  get(key, fallback) { try { return JSON.parse(localStorage.getItem("datenight." + key)) ?? fallback; } catch { return fallback; } },
+  set(key, value) { try { localStorage.setItem("datenight." + key, JSON.stringify(value)); return true; } catch { return false; } },
+};
+const photoDB = {
+  db: null,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((ok, bad) => {
+      const req = indexedDB.open("datenight", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("photos");
+      req.onsuccess = () => ok(this.db = req.result);
+      req.onerror = () => bad(req.error);
+    });
+  },
+  async put(name, b64) { const db = await this.open(); return new Promise((ok, bad) => { const t = db.transaction("photos", "readwrite"); t.objectStore("photos").put(b64, name); t.oncomplete = ok; t.onerror = () => bad(t.error); }); },
+  async get(name) { const db = await this.open(); return new Promise((ok) => { const r = db.transaction("photos").objectStore("photos").get(name); r.onsuccess = () => ok(r.result || null); r.onerror = () => ok(null); }); },
+};
+const mimeFor = (name) => /\.png$/i.test(name) ? "image/png" : /\.gif$/i.test(name) ? "image/gif" : "image/jpeg";
+function loadMemories() { const m = store.get("memories", {}); return { favourites: m.favourites || [], done: m.done || [], my_ideas: m.my_ideas || [] }; }
+function mergeMemories(mine, theirs) {
+  const merged = { favourites: [...mine.favourites], done: [...mine.done], my_ideas: [...mine.my_ideas] };
+  let added = 0;
+  for (const f of theirs.favourites || []) if (!merged.favourites.includes(f)) { merged.favourites.push(f); added++; }
+  const seen = new Set(merged.done.map((d) => d.name + "|" + d.date));
+  for (const d of theirs.done || []) if (!seen.has(d.name + "|" + d.date)) { merged.done.push(d); seen.add(d.name + "|" + d.date); added++; }
+  merged.done.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const names = new Set(merged.my_ideas.map((i) => i.name));
+  for (const i of theirs.my_ideas || []) if (!names.has(i.name)) { merged.my_ideas.push(i); names.add(i.name); added++; }
+  return [merged, added];
+}
+function resizePhoto(file) {
+  return new Promise((ok, bad) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 1200 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      ok(c.toDataURL("image/jpeg", 0.82).split(",")[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); bad(new Error("Couldn't read that photo")); };
+    img.src = url;
+  });
+}
+
+// Sound, made with the Web Audio API so there are no files to download
+
+let audio = null;
+function beep(name) {
+  if (!state.sound) return;
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const notes = { spin: [[659, .07], [784, .07], [988, .07], [1175, .09]], chime: [[1047, .18], [1319, .18], [1568, .45]], yay: [[784, .1], [988, .1], [1175, .1], [1568, .5]] }[name];
+    let t = audio.currentTime;
+    for (const [f, len] of notes) {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = f; o.type = "sine";
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + len + 0.02); t += len;
+    }
+  } catch { /* no sound on this device */ }
+}
+
+// The app
+
+const saved = store.get("settings", {});
+const state = {
+  ideas: [], baseIdeas: [], twists: [], memories: loadMemories(), settings: saved,
+  budget: saved.budget ?? 50, minutes: saved.minutes ?? 30, vibe: VIBES.includes(saved.vibe) ? saved.vibe : null,
+  when: TIMES.includes(saved.when) ? saved.when : null, sound: saved.sound ?? true,
+  surprise: false, revealed: true, current: null, twist: null, recent: [], rainy: false, spinning: false, kicker: null,
+};
+function saveSettings() {
+  Object.assign(state.settings, { budget: state.budget, minutes: state.minutes, vibe: state.vibe, when: state.when, sound: state.sound });
+  store.set("settings", state.settings);
+}
+function saveMemories() { if (!store.set("memories", state.memories)) toast("Couldn't save: your phone's storage is full"); }
+function mergeMyIdeas() {
+  const names = new Set(state.baseIdeas.map((i) => i.name));
+  state.ideas = [...state.baseIdeas];
+  for (const i of state.memories.my_ideas) { try { const c = check({ ...i }); if (!names.has(c.name)) { c.mine = true; state.ideas.push(c); names.add(c.name); } } catch { } }
+}
+
+let toastTimer;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3400); }
+function burst(x, y, n = 16) {
+  for (let k = 0; k < n; k++) {
+    const s = document.createElement("span"), a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 120;
+    s.className = "burst"; s.textContent = HEART;
+    s.style.cssText = `left:${x}px;top:${y}px;font-size:${12 + Math.random() * 14}px;color:${["#ff8fb1", "#ff6f9c", "#ff4d8d", "#e0115f", "#ffb3cb"][k % 5]};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d + 40}px`;
+    document.body.appendChild(s); setTimeout(() => s.remove(), 950);
+  }
+}
+function burstAt(el) { const r = el.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2); }
+
+function makeFloaters() {
+  const box = $("floaters");
+  for (let k = 0; k < 18; k++) {
+    const s = document.createElement("span");
+    s.textContent = HEART;
+    s.style.cssText = `left:${Math.random() * 100}%;font-size:${12 + Math.random() * 22}px;color:${["#ff8fb1", "#ffb3cb", "#ff6f9c", "#ffd1e0", "#ff4d8d"][k % 5]};animation-duration:${14 + Math.random() * 16}s;animation-delay:-${Math.random() * 25}s;--sway:${(Math.random() - .5) * 60}px`;
+    box.appendChild(s);
+  }
+}
+
+function drawDisc() {
+  const svg = $("disc"), r = 92, hub = 30;
+  const sectors = { inside: 90, chill: 210, outside: 330 };
+  const pt = (deg, rad) => [Math.cos(deg * Math.PI / 180) * rad, -Math.sin(deg * Math.PI / 180) * rad];
+  let html = `<circle r="${r + 10}" fill="#ffe3ee" stroke="#ffb3cc" stroke-width="2"/>`;
+  for (let k = 0; k < 12; k++) { const [x, y] = pt(k * 30 + 15, r + 5); html += `<text x="${x}" y="${y + 3}" font-size="8" fill="#ff4d8d" text-anchor="middle">${HEART}</text>`; }
+  for (const [v, start] of Object.entries(sectors)) {
+    const on = state.vibe === null || state.vibe === v;
+    const [x1, y1] = pt(start, r), [x2, y2] = pt(start + 120, r), [lx, ly] = pt(start + 60, (r + hub) / 2);
+    html += `<path data-vibe="${v}" d="M0 0 L${x1} ${y1} A${r} ${r} 0 0 0 ${x2} ${y2} Z" fill="${on ? `var(--${v})` : "var(--dim)"}" stroke="#fff7fa" stroke-width="3"/>`;
+    html += `<text x="${lx}" y="${ly + 5}" text-anchor="middle" font-size="14" fill="${on ? "#fff" : "#b0607f"}">${v[0].toUpperCase() + v.slice(1)}</text>`;
+  }
+  const any = state.vibe === null;
+  html += `<path data-vibe="any" transform="translate(0 3) scale(1.25)" d="M0 22C-26 4-28-8-26-14a13 13 0 0 1 26-3 13 13 0 0 1 26 3c2 6 0 18-26 36z" fill="${any ? "#e0115f" : "#fff"}" stroke="#fff7fa" stroke-width="3"/>`;
+  html += `<text y="4" text-anchor="middle" font-size="13" fill="${any ? "#fff" : "#e0115f"}">Any</text><g id="marker"></g>`;
+  svg.innerHTML = html;
+  $("vibe-hint").textContent = any ? `Any vibe ${HEART} tap a slice to choose` : `${state.vibe[0].toUpperCase() + state.vibe.slice(1)} only ${HEART} tap the heart for any`;
+}
+$("disc").addEventListener("click", (e) => {
+  if (state.spinning) return;
+  const v = e.target.closest("[data-vibe]")?.dataset.vibe;
+  if (!v) return;
+  state.vibe = v === "any" ? null : (state.vibe === v ? null : v);
+  drawDisc(); updateCount(); saveSettings();
+});
+
+function drawTimes() {
+  $("times").innerHTML = [null, ...TIMES].map((t) => `<button class="chip ${state.when === t ? "on" : ""}" data-when="${t}">${TIME_LABELS[t]}</button>`).join("");
+}
+$("times").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-when]"); if (!b) return;
+  state.when = b.dataset.when === "null" ? null : b.dataset.when;
+  drawTimes(); updateCount(); saveSettings();
+});
+
+function sliderText() {
+  const b = state.budget, m = state.minutes;
+  $("budget-out").textContent = b >= BUDGET_MAX ? `£${BUDGET_MAX}+ no limit` : b === 0 ? "Free only" : `Up to £${b}`;
+  $("minutes-out").textContent = m === 0 ? "Stay at home" : m >= DRIVE_MAX ? "Up to an hour" : `Up to ${m} min`;
+}
+for (const id of ["budget", "minutes"]) {
+  $(id).value = state[id];
+  $(id).addEventListener("input", () => { state[id] = +$(id).value; sliderText(); updateCount(); });
+  $(id).addEventListener("change", saveSettings);
+}
+
+const month = () => new Date().getMonth() + 1;
+const candidates = () => matching(state.ideas, state.budget, state.minutes, state.vibe, state.when, month());
+function updateCount() { const n = candidates().length; $("count").textContent = `${HEART} ${n} idea${n !== 1 ? "s" : ""} match`; }
+function weigher() {
+  const favs = new Set(state.memories.favourites), done = new Set(state.memories.done.map((d) => d.name));
+  const soon = occasionSoon(state.settings, new Date()), mo = month();
+  return (i) => weight(i, favs, done, state.rainy, mo, soon);
+}
+const cardButtons = ["fav", "did", "share", "cal", "directions", "again", "hours"];
+
+function spin() {
+  if (state.spinning || !state.ideas.length) return;
+  saveSettings();
+  const list = candidates();
+  if (!list.length) return showNone();
+  const choice = pick(list, state.recent, weigher());
+  startShuffle(list, choice, null);
+}
+function startShuffle(list, choice, kicker) {
+  state.recent = [...state.recent, choice.name].slice(-30);
+  state.spinning = true; state.kicker = kicker;
+  beep("spin");
+  $("go").disabled = true; cardButtons.forEach((b) => $(b).disabled = true);
+  $("kicker").textContent = `${HEART} PICKING ${HEART}`;
+  for (const id of ["where", "facts", "about", "surprise-note"]) $(id).textContent = "";
+  $("twist").hidden = true;
+  $("name").classList.add("shuffling");
+  let step = 0;
+  const tick = () => {
+    if (step < 18) {
+      $("name").textContent = state.surprise ? "Shh" + ".".repeat(step % 4) : list[Math.floor(Math.random() * list.length)].name;
+      const [x, y] = [Math.cos((90 - step * 47) * Math.PI / 180) * 80, -Math.sin((90 - step * 47) * Math.PI / 180) * 80];
+      $("marker").innerHTML = `<text x="${x}" y="${y + 7}" font-size="22" fill="#fff" text-anchor="middle">${HEART}</text>`;
+      setTimeout(tick, 40 + step * 8); step++;
+      return;
+    }
+    $("marker").innerHTML = ""; state.spinning = false; $("name").classList.remove("shuffling");
+    show(choice, true, false);
+  };
+  tick();
+}
+function show(i, newTwist, reveal) {
+  state.current = i; state.revealed = reveal || !state.surprise;
+  if (newTwist) state.twist = state.twists[Math.floor(Math.random() * state.twists.length)];
+  const vibes = i.vibes.map((v) => v[0].toUpperCase() + v.slice(1)).join(" / ");
+  let facts = `${describeDrive(i.minutes)}   ${HEART}   ${describeCost(i.cost)}   ${HEART}   ${vibes}`;
+  if (state.revealed) {
+    $("kicker").textContent = `${HEART} ${state.kicker || "TONIGHT'S DATE"} ${HEART}`;
+    $("name").textContent = i.name;
+    $("where").textContent = i.where + (i.mine ? "  (your idea)" : "");
+    const past = state.memories.done.filter((d) => d.name === i.name);
+    if (past.length) facts += `\nYou've done this before and gave it ${past[past.length - 1].rating || 5} hearts`;
+    if (state.rainy && i.vibes.includes("outside") && !i.vibes.includes("inside")) facts += "\nRain is likely today: take a brolly, or pick Inside";
+    const [days, occ] = occasions(state.settings, new Date())[0];
+    if (days <= 14 && isSpecial(i)) facts += `\nPerfect for ${occ} (${days === 0 ? "today" : `in ${days} days`})`;
+    if (i.months.length && i.months.length <= 3) facts += "\nOnly on at this time of year, so make the most of it!";
+    $("about").textContent = i.about;
+    $("surprise-note").textContent = "";
+  } else {
+    $("kicker").textContent = `${HEART} SURPRISE DATE ${HEART}`;
+    $("name").textContent = "Top secret date";
+    $("where").textContent = "Only the planner gets to know";
+    $("about").textContent = surpriseClues(i);
+    $("surprise-note").textContent = "Planner: tap Reveal to see it";
+  }
+  $("facts").textContent = facts;
+  $("twist").hidden = false; $("twist").textContent = `${HEART} Cute twist: ${state.twist}`;
+  $("go").disabled = false; $("again").disabled = false; $("share").disabled = false; $("cal").disabled = false;
+  $("directions").textContent = state.revealed ? "Directions" : `Reveal ${HEART}`;
+  $("directions").disabled = state.revealed && !directionsUrl(i);
+  $("fav").disabled = $("did").disabled = !state.revealed;
+  $("hours").disabled = !(state.revealed && i.maps);
+  refreshFav();
+  if (newTwist) { beep("chime"); burstAt($("name")); }
+}
+function showNone() {
+  state.current = null;
+  $("kicker").textContent = `${HEART} NOTHING MATCHES ${HEART}`;
+  $("name").textContent = "No ideas fit that yet";
+  $("where").textContent = $("facts").textContent = "";
+  $("about").textContent = "Try a bigger budget, a longer drive, another time of day, or tap the heart in the middle of the disc for any vibe.";
+  $("twist").hidden = true;
+  cardButtons.forEach((b) => $(b).disabled = true);
+}
+function refreshFav() {
+  const on = state.current && state.memories.favourites.includes(state.current.name);
+  $("fav").textContent = on ? `${HEART} Saved` : `${HEART} Save`;
+  $("fav").classList.toggle("on", !!on);
+}
+
+$("go").onclick = spin;
+$("again").onclick = spin;
+$("fav").onclick = () => {
+  const favs = state.memories.favourites, n = state.current.name, k = favs.indexOf(n);
+  if (k >= 0) { favs.splice(k, 1); toast("Removed from favourites"); } else { favs.push(n); toast(`Saved to favourites ${HEART} it'll come up more often`); }
+  saveMemories(); refreshFav();
+};
+$("directions").onclick = () => {
+  if (!state.revealed) { show(state.current, false, true); burstAt($("name")); return; }
+  const url = directionsUrl(state.current); if (url) window.open(url, "_blank");
+};
+$("hours").onclick = async () => {
+  const i = state.current, b = $("hours");
+  b.disabled = true; b.textContent = "Checking";
+  const found = await fetchOpeningHours(i);
+  b.textContent = "Open?"; b.disabled = state.current !== i;
+  if (state.current !== i) return;
+  if (!found) { window.open(`https://www.google.com/search?q=${encodeURIComponent((i.maps || i.name) + " opening times")}`, "_blank"); toast("Not listed on OpenStreetMap, so I've opened a search for its opening times"); return; }
+  const today = hoursOn(found[1], new Date());
+  toast(today === null ? `${found[0]}: ${found[1].slice(0, 70)}` : today === "closed" ? `${found[0]} looks closed today. Check their website to be sure` : `${found[0]} is open ${today} today (from OpenStreetMap)`);
+};
+$("share").onclick = async () => {
+  const i = state.current;
+  const text = state.revealed ? shareText(i, state.twist) : `${HEART} I've planned a surprise date for us! ${HEART}\n${surpriseClues(i)}\nCute twist: ${state.twist}`;
+  if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e.name === "AbortError") return; } }
+  $("share-text").value = text; $("dlg-share").showModal();
+};
+$("share-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("share-text").value); toast("Copied! Paste it into WhatsApp"); }
+  catch { $("share-text").select(); document.execCommand("copy"); toast("Copied!"); }
+};
+function download(name, content, type) {
+  const a = document.createElement("a"), url = URL.createObjectURL(new Blob([content], { type }));
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+$("cal").onclick = () => {
+  const i = state.current, secret = !state.revealed, [h, m] = startTime(i);
+  $("cal-info").textContent = `It starts at ${h}:${String(m).padStart(2, "0")} and lasts three hours, with a reminder two hours before.`;
+  $("cal-days").innerHTML = "";
+  for (const [label, day] of calendarDays(new Date())) {
+    const b = document.createElement("button"); b.className = "btn";
+    b.textContent = `${label}  (${day.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })})`;
+    b.onclick = () => {
+      const ev = secret ? { ...i, name: "Surprise date night", where: "It's a surprise", about: surpriseClues(i), maps: "" } : i;
+      download(`date-night-${isoDate(day)}.ics`, makeIcs(ev, day, state.twist), "text/calendar");
+      $("dlg-cal").close(); toast("Calendar file saved: open it to add the date to your calendar");
+    };
+    $("cal-days").appendChild(b);
+  }
+  $("dlg-cal").showModal();
+};
+
+// Pills
+
+$("toggle-surprise").onclick = () => {
+  state.surprise = !state.surprise; $("toggle-surprise").classList.toggle("on", state.surprise);
+  $("toggle-surprise").textContent = state.surprise ? `Surprise ${HEART}` : "Surprise";
+  toast(state.surprise ? "Surprise mode on: the next pick stays secret until you tap Reveal" : "Surprise mode off");
+};
+function refreshSound() { $("toggle-sound").textContent = state.sound ? "\u266a On" : "\u266a Off"; $("toggle-sound").classList.toggle("muted", !state.sound); }
+$("toggle-sound").onclick = () => { state.sound = !state.sound; refreshSound(); saveSettings(); beep("chime"); toast(state.sound ? "Sound on" : "Sound off"); };
+document.querySelectorAll("[data-close]").forEach((b) => b.onclick = () => b.closest("dialog").close());
+
+// We did it
+
+let rating = 5;
+function drawRating() { $("rating").innerHTML = [1, 2, 3, 4, 5].map((k) => `<span data-r="${k}" class="${k <= rating ? "on" : ""}">${HEART}</span>`).join(""); }
+$("rating").onclick = (e) => { const r = e.target.dataset.r; if (r) { rating = +r; drawRating(); } };
+$("did").onclick = () => { rating = 5; drawRating(); $("did-name").querySelector("b").textContent = state.current.name; $("did-note").value = ""; $("did-photo").value = ""; $("dlg-did").showModal(); };
+$("did-save").onclick = async () => {
+  const i = state.current, today = todayISO();
+  const entry = { name: i.name, where: i.where, date: today, rating, note: $("did-note").value.trim(), cost: i.cost, vibes: [...i.vibes] };
+  const file = $("did-photo").files[0];
+  if (file) {
+    try {
+      const slug = i.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "date";
+      let name = `${today}-${slug}.jpg`, k = 2;
+      while (await photoDB.get(name)) name = `${today}-${slug}-${k++}.jpg`;
+      await photoDB.put(name, await resizePhoto(file));
+      entry.photo = name;
+    } catch { toast("Couldn't save the photo, but the memory is saved"); }
+  }
+  state.memories.done.push(entry); saveMemories();
+  $("dlg-did").close();
+  show(i, false, true);
+  const count = state.memories.done.length, badge = MILESTONES[count];
+  if (badge) { beep("yay"); for (let k = 0; k < 3; k++) setTimeout(() => burst(innerWidth * (.2 + Math.random() * .6), innerHeight * (.3 + Math.random() * .4)), k * 250); toast(`${HEART} New badge: ${badge}! ${count} date${count !== 1 ? "s" : ""} logged ${HEART}`); }
+  else toast(`Saved to your memories ${HEART}`);
+};
+
+// Memories
+
+async function openMemories() {
+  const done = state.memories.done, today = new Date(), monthCount = datesThisMonth(done, today), streak = dateStreak(done, today);
+  $("mem-stats").textContent = memoryStats(done);
+  $("mem-streak").textContent = `This month: ${monthCount} date${monthCount !== 1 ? "s" : ""}  ${HEART}  Streak: ${streak} week${streak !== 1 ? "s" : ""} in a row`;
+  $("mem-badges").innerHTML = badges(done.length).map((b) => `<span class="badge">${HEART} ${esc(b)}</span>`).join("") || `<span class="muted">No badges yet</span>`;
+  const next = Object.entries(MILESTONES).find(([n]) => +n > done.length);
+  $("mem-next").textContent = next ? `Next: ${+next[0] - done.length} more for \u201c${next[1]}\u201d` : "Every badge earned!";
+  const list = $("mem-list");
+  list.innerHTML = done.length ? "" : `<p class="muted">Nothing yet. After your next date, tap "We did it!".</p>`;
+  for (const d of [...done].reverse()) {
+    const r = Math.max(0, Math.min(5, d.rating || 5)), when = parseISO(d.date);
+    const div = document.createElement("div"); div.className = "mem";
+    div.innerHTML = `<div class="hearts">${HEART.repeat(r)}<i>${"\u2661".repeat(5 - r)}</i> <span class="muted">${when ? when.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }) : ""}</span></div>
+      <b>${esc(d.name)}</b> <span class="muted">(${esc(d.where || "")})</span>${d.note ? `<div style="font-style:italic;color:var(--deeper)">\u201c${esc(d.note)}\u201d</div>` : ""}`;
+    list.appendChild(div);
+    if (d.photo) photoDB.get(d.photo).then((b64) => { if (b64) { const img = document.createElement("img"); img.alt = ""; img.src = `data:${mimeFor(d.photo)};base64,${b64}`; div.appendChild(img); } });
+  }
+  const byName = new Map(state.ideas.map((i) => [i.name, i]));
+  const favs = state.memories.favourites.map((n) => byName.get(n)).filter(Boolean);
+  $("mem-favs").innerHTML = favs.length ? favs.map((i) => `<div>${HEART} ${esc(i.name)} <span class="muted">${esc(describeDrive(i.minutes))}, ${esc(describeCost(i.cost).toLowerCase())}</span></div>`).join("") : `<p class="muted">None yet. Tap "${HEART} Save" on an idea you like.</p>`;
+  $("mem-pickfav").hidden = !favs.length;
+  $("mem-pickfav").onclick = () => { $("dlg-memories").close(); if (!state.spinning) startShuffle(favs, pick(favs, state.recent), null); };
+  if (!$("dlg-memories").open) $("dlg-memories").showModal();
+}
+$("open-memories").onclick = openMemories;
+$("mem-backup").onclick = async () => {
+  const photos = {};
+  for (const d of state.memories.done) if (d.photo) { const b = await photoDB.get(d.photo); if (b) photos[d.photo] = b; }
+  download(`date-night-backup-${todayISO()}.json`, JSON.stringify({ app: "datenight", version: 1, saved: new Date().toISOString(), memories: state.memories, photos }), "application/json");
+  toast("Backup saved. Send it to the laptop or keep it in Google Drive");
+};
+$("mem-restore").onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = "";
+  if (!file) return;
+  try {
+    const backup = JSON.parse(await file.text());
+    if (backup.app !== "datenight" || !backup.memories) throw new Error("not a backup");
+    for (const [name, b64] of Object.entries(backup.photos || {})) if (!(await photoDB.get(name))) await photoDB.put(name, b64);
+    const [merged, added] = mergeMemories(state.memories, backup.memories);
+    state.memories = merged; saveMemories(); mergeMyIdeas(); updateCount();
+    await openMemories();
+    toast(`Restored ${added} new thing${added !== 1 ? "s" : ""} from the backup ${HEART}`);
+  } catch { toast("That file isn't a Date Night Picker backup"); }
+};
+$("mem-review").onclick = async () => {
+  const year = new Date().getFullYear(), dates = state.memories.done.filter((d) => (d.date || "").startsWith(String(year)));
+  const who = [state.settings.your_name, state.settings.her_name].filter(Boolean).join(" & ") || "us";
+  const spent = dates.reduce((a, d) => a + (d.cost || 0), 0), rated = dates.filter((d) => d.rating).map((d) => d.rating);
+  const count = (arr) => { const c = {}; arr.forEach((x) => c[x] = (c[x] || 0) + 1); return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0]; };
+  const vibe = count(dates.flatMap((d) => d.vibes || [])), place = count(dates.map((d) => d.where).filter((w) => w && w !== "At home"));
+  const best = [...dates].sort((a, b) => (b.rating || 0) - (a.rating || 0) || (b.date || "").localeCompare(a.date || ""))[0];
+  const tiles = [[dates.length, "dates together"], [`£${spent}`, "spent on each other"], [rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : "-", "average hearts"], [vibe ? vibe[0].toUpperCase() + vibe.slice(1) : "-", "favourite vibe"], [place || "Home", "favourite place"]];
+  const cards = [];
+  for (const d of dates) {
+    const b64 = d.photo ? await photoDB.get(d.photo) : null, r = d.rating || 5, when = parseISO(d.date);
+    cards.push(`<div class="card">${b64 ? `<img src="data:${mimeFor(d.photo)};base64,${b64}" alt="">` : ""}<div class="body"><div class="when">${when ? when.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long" }) : ""}</div><h3>${esc(d.name)}</h3><div class="where">${esc(d.where || "")}</div><div class="hearts">${"&#9829;".repeat(r)}<span>${"&#9825;".repeat(5 - r)}</span></div>${d.note ? `<p class="note">\u201c${esc(d.note)}\u201d</p>` : ""}</div></div>`);
+  }
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Our ${year} in dates</title><style>
+:root{--pink:#e0115f;--ink:#5a1a35;--muted:#b0607f}*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;color:var(--ink);background:linear-gradient(#ffe4ef,#ffc2d8) fixed;padding:28px 16px}main{max-width:900px;margin:0 auto}h1{color:var(--pink);font-size:36px;text-align:center;margin:0 0 4px}.sub{text-align:center;color:var(--muted);margin:0 0 24px}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}.tile{background:#fff7fa;border:2px solid #ffb3cc;border-radius:20px;padding:14px;text-align:center}.tile b{display:block;font-size:24px;color:var(--pink);overflow-wrap:anywhere}.tile span{color:var(--muted);font-size:13px}.best{text-align:center;font-size:17px;margin:8px 0 22px}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;align-items:start}.card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 14px rgba(224,17,95,.15)}.card img{width:100%;height:200px;object-fit:cover;display:block}.body{padding:12px 14px 14px}.when{color:var(--muted);font-size:13px}h3{margin:4px 0 2px}.where{color:var(--pink);font-size:14px}.hearts{color:var(--pink);font-size:20px;margin-top:6px}.hearts span{color:#f3c3d4}.note{font-style:italic;color:#b80d4d;margin:8px 0 0}footer{text-align:center;color:var(--muted);margin-top:28px;font-size:30px}@media print{body{background:#fff}.card{box-shadow:none;border:1px solid #ffb3cc}}
+</style></head><body><main><h1>&#9829; Our ${year} in dates &#9829;</h1><p class="sub">A year of date nights for ${esc(who)}</p><div class="tiles">${tiles.map(([v, k]) => `<div class="tile"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("")}</div>${best ? `<p class="best">Best date of the year: <b>${esc(best.name)}</b></p>` : `<p class="best">No dates logged this year yet. Go and make some memories!</p>`}<div class="cards">${cards.join("")}</div><footer>&#9829; &#9829; &#9829;</footer></main></body></html>`;
+  const url = URL.createObjectURL(new Blob([page], { type: "text/html" }));
+  if (!window.open(url, "_blank")) download(`our-${year}-in-dates.html`, page, "text/html");
+};
+
+// Add your own idea
+
+$("add-vibes").innerHTML = VIBES.map((v) => `<label><input type="checkbox" value="${v}"> ${v[0].toUpperCase() + v.slice(1)}</label>`).join("");
+$("open-add").onclick = () => { for (const id of ["add-name", "add-where", "add-maps", "add-about"]) $(id).value = ""; $("add-err").textContent = ""; $("add-vibes").querySelectorAll("input").forEach((c) => c.checked = c.value === state.vibe); $("dlg-add").showModal(); };
+$("add-save").onclick = () => {
+  const name = $("add-name").value.trim(), vibes = [...$("add-vibes").querySelectorAll("input:checked")].map((c) => c.value);
+  const mins = parseInt($("add-minutes").value, 10), cost = parseInt($("add-cost").value, 10), err = $("add-err");
+  if (!name) return err.textContent = "Give your idea a name.";
+  if (state.ideas.some((i) => i.name.toLowerCase() === name.toLowerCase())) return err.textContent = "There's already an idea with that name.";
+  if (!vibes.length) return err.textContent = "Tick at least one vibe.";
+  if (!(mins >= 0 && mins <= DRIVE_MAX && cost >= 0)) return err.textContent = `Drive must be 0 to ${DRIVE_MAX} minutes and cost 0 or more.`;
+  state.memories.my_ideas.push({ name, where: $("add-where").value.trim() || "Somewhere special", minutes: mins, cost, vibes, about: $("add-about").value.trim() || "Your own idea.", maps: $("add-maps").value.trim() });
+  saveMemories(); mergeMyIdeas(); updateCount(); $("dlg-add").close();
+  toast(`Added \u201c${name}\u201d ${HEART} ${state.ideas.length} ideas now`);
+};
+
+// Settings
+
+const SETTING_FIELDS = { "set-you": "your_name", "set-her": "her_name", "set-anniversary": "anniversary", "set-herbday": "her_birthday", "set-yourbday": "your_birthday" };
+$("open-settings").onclick = () => { for (const [id, key] of Object.entries(SETTING_FIELDS)) $(id).value = state.settings[key] || ""; $("dlg-settings").showModal(); };
+$("set-save").onclick = () => {
+  for (const [id, key] of Object.entries(SETTING_FIELDS)) state.settings[key] = $(id).value.trim();
+  saveSettings(); refreshSubtitle(); $("dlg-settings").close();
+  toast(`Saved ${HEART} ${countdownText(state.settings, new Date())}`);
+};
+function refreshSubtitle() {
+  const s = state.settings, who = s.your_name && s.her_name ? `for ${s.your_name} & ${s.her_name}` : "for the two of us";
+  $("subtitle").textContent = `Made with love, ${who}  ${HEART}  ${countdownText(s, new Date())}`;
+}
+
+// Both of us
+
+$("open-both").onclick = () => {
+  const saved = state.settings.both || {}, names = [state.settings.your_name || "You", state.settings.her_name || "Her"];
+  $("both-sides").innerHTML = ["a", "b"].map((k, n) => {
+    const p = saved[k] || {}, budget = p.budget ?? state.budget, minutes = p.minutes ?? state.minutes, vibes = p.vibes || VIBES;
+    return `<div class="side" data-side="${k}"><h3>${HEART} ${esc(names[n])}</h3>
+      <label>Spend up to <output>${budget >= BUDGET_MAX ? `£${BUDGET_MAX}+` : budget === 0 ? "Free" : `£${budget}`}</output></label><input type="range" name="budget" min="0" max="200" step="5" value="${budget}">
+      <label>Drive up to <output>${minutes === 0 ? "Home" : `${minutes} min`}</output></label><input type="range" name="minutes" min="0" max="60" step="5" value="${minutes}">
+      <label>Happy with</label><div class="checks">${VIBES.map((v) => `<label><input type="checkbox" value="${v}" ${vibes.includes(v) ? "checked" : ""}> ${v[0].toUpperCase() + v.slice(1)}</label>`).join("<br>")}</div></div>`;
+  }).join("");
+  $("both-sides").querySelectorAll("input[type=range]").forEach((r) => r.oninput = () => {
+    const v = +r.value, out = r.previousElementSibling.querySelector("output");
+    out.textContent = r.name === "budget" ? (v >= BUDGET_MAX ? `£${BUDGET_MAX}+` : v === 0 ? "Free" : `£${v}`) : (v === 0 ? "Home" : `${v} min`);
+  });
+  $("both-err").textContent = "";
+  $("dlg-both").showModal();
+};
+$("both-go").onclick = () => {
+  const answers = {};
+  $("both-sides").querySelectorAll(".side").forEach((s) => answers[s.dataset.side] = { budget: +s.querySelector("[name=budget]").value, minutes: +s.querySelector("[name=minutes]").value, vibes: [...s.querySelectorAll("input:checked")].map((c) => c.value) });
+  state.settings.both = answers; saveSettings();
+  const list = bothMatch(state.ideas, answers.a, answers.b, state.when, month());
+  if (!list.length) return $("both-err").textContent = "Nothing fits you both yet. Try a bigger budget, a longer drive or more vibes.";
+  $("dlg-both").close();
+  if (!state.spinning) startShuffle(list, pick(list, state.recent, weigher()), "YOU BOTH SAID YES");
+};
+
+// Start-up
+
+async function start() {
+  makeFloaters(); drawDisc(); drawTimes(); sliderText(); refreshSound(); refreshSubtitle();
+  try {
+    const r = await fetch("../ideas.json", { cache: "no-cache" });
+    const data = expand(await r.json());
+    state.baseIdeas = data.ideas; state.twists = data.twists;
+    mergeMyIdeas(); updateCount();
+    $("name").textContent = "Ready when you are, lovebirds";
+    $("about").textContent = "Answer the four questions, then tap the big pink button.";
+    $("go").disabled = false;
+  } catch {
+    $("name").textContent = "Couldn't load the ideas";
+    $("about").textContent = "Check your internet connection and reload the page.";
+  }
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${FLECKNEY[0]}&longitude=${FLECKNEY[1]}&timezone=Europe%2FLondon&forecast_days=1&daily=weather_code,temperature_2m_max,precipitation_probability_max`;
+    const w = parseWeather(await (await fetch(url, { signal: AbortSignal.timeout(8000) })).json());
+    if (!w) throw new Error();
+    state.rainy = w.rainy;
+    $("weather").textContent = w.summary + (w.rainy ? `  ${HEART}  fewer outdoor picks` : "");
+  } catch { $("weather").textContent = "Weather unavailable"; }
+}
+start();
+</script>
+</body>
+</html>

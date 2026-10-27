@@ -15,7 +15,7 @@ DEST="$HOME/.local/share/datenight"
 MENU_FILE="$HOME/.local/share/applications/datenight.desktop"
 DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
 DESKTOP_FILE="$DESKTOP_DIR/datenight.desktop"
-FILES=(datenight.py ideas.json icon.svg install.sh)
+FILES=(datenight.py datecore.py ideas.json icon.svg install.sh)
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok() { printf '  \033[32m✔\033[0m %s\n' "$*"; }
@@ -59,6 +59,9 @@ if ! python3 -c 'import tkinter' >/dev/null 2>&1; then
   fi
 fi
 ok "Tkinter is available"
+if ! python3 -c 'import PIL.ImageTk' >/dev/null 2>&1; then
+  echo "  Optional: to see JPEG photo thumbnails in Our memories, run: sudo apt install python3-pil.imagetk"
+fi
 
 # Use the files next to this script when run from a copy of the repository; otherwise download them.
 SELF="${BASH_SOURCE[0]:-}"

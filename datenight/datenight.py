@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Date Night Picker: answer three questions, press the button, get a date idea near Fleckney.
 
-Everything runs offline from ideas.json next to this file. Only the Directions button goes online,
-by opening Google Maps in your browser. Plain Tkinter, no extra packages, a few MB of RAM.
+Everything runs offline from ideas.json next to this file. Two things go online, and the app works
+without them: a weather check at start-up (Open-Meteo, no account needed) and the Directions button,
+which opens Google Maps in your browser. Plain Tkinter, no extra packages, a few MB of RAM.
 
     python3 datenight.py           open the app
     python3 datenight.py --check   check that the app can start, then exit
@@ -13,14 +14,21 @@ import json
 import math
 import random
 import sys
+import threading
+import urllib.request
 import webbrowser
-from collections import deque
+from collections import Counter, deque
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
 
 HOME_POSTCODE = "LE8 8AL"
 IDEAS_FILE = Path(__file__).with_name("ideas.json")
 SETTINGS_FILE = Path.home() / ".config" / "datenight" / "settings.json"
+MEMORIES_FILE = SETTINGS_FILE.with_name("memories.json")
+FLECKNEY = (52.535, -1.046)
+WEATHER_URL = ("https://api.open-meteo.com/v1/forecast?latitude={0}&longitude={1}&timezone=Europe%2FLondon"
+               "&forecast_days=1&daily=weather_code,temperature_2m_max,precipitation_probability_max")
 VIBES = ("inside", "outside", "chill")
 SIZES = ("city", "town", "village")
 BUDGET_MAX = 200  # the top of the slider means "no limit"
@@ -113,12 +121,26 @@ def matching(ideas: list[dict], budget: int, minutes: int, vibe: str | None) -> 
             and (vibe is None or vibe in i["vibes"])]
 
 
-def pick(candidates: list[dict], recent: deque, rng: random.Random = random) -> dict | None:
+def weight(idea: dict, favourites=(), done=(), rainy: bool = False) -> float:
+    """How likely an idea is to be picked: favourites more, dates you've done and soggy ones less."""
+    w = 1.0
+    if idea["name"] in favourites:
+        w *= 3
+    if idea["name"] in done:
+        w *= 0.25
+    if rainy and "outside" in idea["vibes"] and "inside" not in idea["vibes"]:
+        w *= 0.3
+    return w
+
+
+def pick(candidates: list[dict], recent: deque, rng: random.Random = random, weigh=None) -> dict | None:
     """A random idea, avoiding recent picks while there are other options."""
     if not candidates:
         return None
-    fresh = [i for i in candidates if i["name"] not in recent]
-    return rng.choice(fresh or candidates)
+    pool = [i for i in candidates if i["name"] not in recent] or candidates
+    if weigh is None:
+        return rng.choice(pool)
+    return rng.choices(pool, weights=[weigh(i) for i in pool])[0]
 
 
 def directions_url(idea: dict, origin: str = HOME_POSTCODE) -> str | None:
@@ -136,6 +158,22 @@ def describe_drive(minutes: int) -> str:
     return "No driving" if minutes == 0 else f"About {minutes} min drive"
 
 
+def surprise_clues(idea: dict) -> str:
+    """What the not-planner gets to know: how far, how fancy and what to wear, but not where."""
+    vibes = idea["vibes"]
+    if idea["minutes"] == 0:
+        wear = "You won't even need to leave the house. Comfy clothes are perfect."
+    elif "outside" in vibes and "inside" not in vibes:
+        wear = "Wear comfy shoes and bring a coat."
+    elif idea["cost"] >= 80:
+        wear = "Dress up a bit: it's a fancy one."
+    elif "chill" in vibes:
+        wear = "Something comfy but cute."
+    else:
+        wear = "Wear something nice."
+    return f"Clue: {describe_drive(idea['minutes']).lower()}. {wear}"
+
+
 def load_settings() -> dict:
     try:
         return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -149,6 +187,153 @@ def save_settings(settings: dict) -> None:
         SETTINGS_FILE.write_text(json.dumps(settings), encoding="utf-8")
     except OSError:
         pass  # remembering the sliders is a nicety, not worth an error
+
+
+# Memories: favourites, dates you've done, and your own ideas. Kept apart from ideas.json so updates never
+# touch them.
+
+def load_memories(path: Path | None = None) -> dict:
+    path = path or MEMORIES_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    return {"favourites": list(data.get("favourites", [])), "done": list(data.get("done", [])),
+            "my_ideas": list(data.get("my_ideas", []))}
+
+
+def save_memories(memories: dict, path: Path | None = None) -> bool:
+    path = path or MEMORIES_FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(memories, indent=1), encoding="utf-8")
+        tmp.replace(path)
+        return True
+    except OSError:
+        return False
+
+
+def merge_my_ideas(ideas: list[dict], my_ideas: list[dict]) -> list[dict]:
+    """Your own ideas join the list; a broken one is skipped rather than stopping the app."""
+    names = {i["name"] for i in ideas}
+    merged = list(ideas)
+    for idea in my_ideas:
+        try:
+            idea = _check(dict(idea), "your ideas")
+        except (ValueError, AttributeError):
+            continue
+        if idea["name"] not in names:
+            idea["mine"] = True
+            merged.append(idea)
+            names.add(idea["name"])
+    return merged
+
+
+def memory_stats(done: list[dict]) -> str:
+    if not done:
+        return "No dates logged yet. Press \"We did it!\" after your next one."
+    spent = sum(d.get("cost", 0) for d in done)
+    rated = [d["rating"] for d in done if d.get("rating")]
+    vibes = Counter(v for d in done for v in d.get("vibes", []))
+    parts = [f"{len(done)} date{'s' if len(done) != 1 else ''} together", f"about £{spent} spent"]
+    if rated:
+        parts.append(f"average {sum(rated) / len(rated):.1f} hearts")
+    if vibes:
+        parts.append(f"favourite vibe: {vibes.most_common(1)[0][0]}")
+    return "  \u2665  ".join(parts)
+
+
+# Sharing
+
+def share_text(idea: dict, twist: str | None = None) -> str:
+    lines = [f"{HEART} Date night plan {HEART}", f"{idea['name']} ({idea['where']})",
+             f"{describe_drive(idea['minutes'])}, {describe_cost(idea['cost']).lower()}", idea["about"]]
+    if twist:
+        lines.append(f"Cute twist: {twist}")
+    url = directions_url(idea)
+    if url:
+        lines.append(f"Directions: {url}")
+    return "\n".join(lines)
+
+
+def _ics_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def start_time(idea: dict) -> tuple[int, int]:
+    """Outdoor days start late morning; everything else is an evening date."""
+    return (11, 0) if "outside" in idea["vibes"] and "inside" not in idea["vibes"] else (18, 30)
+
+
+def make_ics(idea: dict, day: date, twist: str | None = None, now: datetime | None = None) -> str:
+    now = now or datetime.now(timezone.utc)
+    hour, minute = start_time(idea)
+    start = datetime(day.year, day.month, day.day, hour, minute)
+    end = start + timedelta(hours=3)
+    about = idea["about"] + (f"\nCute twist: {twist}" if twist else "")
+    url = directions_url(idea)
+    if url:
+        about += f"\nDirections: {url}"
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Date Night Picker//EN", "BEGIN:VEVENT",
+             f"UID:{now.strftime('%Y%m%dT%H%M%S%f')}-{abs(hash(idea['name']))}@datenight",
+             f"DTSTAMP:{now.strftime('%Y%m%dT%H%M%SZ')}",
+             f"DTSTART:{start.strftime('%Y%m%dT%H%M%S')}", f"DTEND:{end.strftime('%Y%m%dT%H%M%S')}",
+             f"SUMMARY:{_ics_escape('Date night: ' + idea['name'])}",
+             f"LOCATION:{_ics_escape(idea['where'])}", f"DESCRIPTION:{_ics_escape(about)}",
+             "BEGIN:VALARM", "TRIGGER:-PT2H", "ACTION:DISPLAY", "DESCRIPTION:Date night soon!", "END:VALARM",
+             "END:VEVENT", "END:VCALENDAR"]
+    return "\r\n".join(lines) + "\r\n"
+
+
+def next_saturday(today: date) -> date:
+    return today + timedelta(days=(5 - today.weekday()) % 7 or 7)
+
+
+def calendar_days(today: date) -> list[tuple[str, date]]:
+    tomorrow = today + timedelta(days=1)
+    sat = next_saturday(today)
+    days = [("Tonight", today), ("Tomorrow", tomorrow)]
+    if today.weekday() == 5:
+        days.append(("Next Saturday", sat))
+    else:
+        if sat != tomorrow:
+            days.append(("This Saturday", sat))
+        days.append(("Saturday after", sat + timedelta(days=7)))
+    return days
+
+
+def desktop_dir() -> Path:
+    desk = Path.home() / "Desktop"
+    return desk if desk.is_dir() else Path.home()
+
+
+# Weather
+
+WEATHER_WORDS = [(0, "Clear skies"), (3, "Cloudy"), (48, "Foggy"), (57, "Drizzle"), (67, "Rain"), (77, "Snow"),
+                 (82, "Showers"), (86, "Snow showers"), (99, "Thunderstorms")]
+
+
+def parse_weather(data: dict) -> dict | None:
+    try:
+        daily = data["daily"]
+        code = int(daily["weather_code"][0])
+        top = round(float(daily["temperature_2m_max"][0]))
+        rain = int(daily["precipitation_probability_max"][0] or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    words = next(w for limit, w in WEATHER_WORDS if code <= limit) if code <= 99 else "Mixed"
+    rainy = rain >= 60 or 51 <= code <= 67 or code >= 80
+    return {"summary": f"Today: {words}, {top}\u00b0C, {rain}% chance of rain", "rainy": rainy}
+
+
+def fetch_weather(timeout: float = 6) -> dict | None:
+    try:
+        req = urllib.request.Request(WEATHER_URL.format(*FLECKNEY), headers={"User-Agent": "DateNightPicker"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return parse_weather(json.loads(resp.read().decode("utf-8")))
+    except (OSError, ValueError):
+        return None
 
 
 # Drawing helpers
@@ -231,6 +416,13 @@ class PinkButton:
         self.c.itemconfig(self.shape, fill=self.fill if enabled else OFF)
         self.c.itemconfig(self.label, fill=self.fg if enabled else "white")
 
+    def set_text(self, text: str):
+        self.c.itemconfig(self.label, text=text)
+
+    def set_look(self, fill: str, fg: str):
+        self.fill, self.fg = fill, fg
+        self.set_enabled(self.enabled)
+
 
 class App:
     DISC_X, DISC_Y = 238, 370
@@ -239,17 +431,24 @@ class App:
     SECTORS = {"inside": 90, "chill": 210, "outside": 330}  # start angle of each 120° slice
     CARD_X, CARD_W = 506, 384
 
-    def __init__(self, root, ideas: list[dict], twists: list[str]):
+    def __init__(self, root, ideas: list[dict], twists: list[str], weather: bool = True):
         import tkinter as tk
 
+        self.tk = tk
         self.root = root
-        self.ideas = ideas
+        self.memories = load_memories()
+        self.ideas = merge_my_ideas(ideas, self.memories["my_ideas"])
         self.twists = twists or ["Hold hands the whole time."]
         self.recent: deque = deque(maxlen=30)
         self.spinning = False
         self.current: dict | None = None
         self.floaters: list[list] = []
         self.frame = 0
+        self.surprise = False
+        self.revealed = True
+        self.twist_now: str | None = None
+        self.rainy = False
+        self.weather_result: list = []
 
         saved = load_settings()
         self.budget = int(saved.get("budget", 50))
@@ -273,13 +472,21 @@ class App:
                       fill="#ffffff", anchor="w")
         c.create_text(28, 38, text=f"{HEART} Date Night Picker {HEART}", font=(FONT, 25, "bold"),
                       fill=DEEP, anchor="w")
-        c.create_text(30, 72, text=f"Made with love, for the two of us  {HEART}  within an hour of "
-                                   f"{HOME_POSTCODE}, Fleckney", font=(FONT, 10), fill=MUTED, anchor="w")
+        c.create_text(30, 72, text=f"Made with love, for the two of us  {HEART}  {HOME_POSTCODE}, Fleckney",
+                      font=(FONT, 10), fill=MUTED, anchor="w")
 
         round_rect(c, 24, 96, 452, 600, 26, fill=PANEL, outline=PANEL_EDGE, width=2)
         round_rect(c, 476, 96, 916, 600, 26, fill=PANEL, outline=PANEL_EDGE, width=2)
-        c.create_polygon(heart_points(826, 470, 64), smooth=True, fill=BLUSH, outline="")
-        c.create_polygon(heart_points(866, 420, 26), smooth=True, fill=BLUSH, outline="")
+        c.create_polygon(heart_points(846, 446, 40), smooth=True, fill=BLUSH, outline="")
+        c.create_polygon(heart_points(888, 404, 16), smooth=True, fill=BLUSH, outline="")
+
+        # Header pills and the weather line
+        pill = dict(size=9, fill=PANEL, hover=HOT, fg=DEEP)
+        PinkButton(c, (596, 18, 718, 46), f"Our memories {HEART}", self.open_memories, **pill)
+        PinkButton(c, (726, 18, 826, 46), "+ Add idea", self.open_add_idea, **pill)
+        self.surprise_button = PinkButton(c, (834, 18, 916, 46), "Surprise", self.toggle_surprise, **pill)
+        self.weather_text = c.create_text(916, 72, text="Checking the weather..." if weather else "",
+                                          font=(FONT, 9), fill=MUTED, anchor="e")
 
         # Questions
         c.create_text(50, 122, text="1. How much would you like to spend?", font=(FONT, 11, "bold"),
@@ -316,12 +523,19 @@ class App:
         self.twist_box = round_rect(c, 0, 0, 1, 1, 14, fill=BLUSH, outline=PANEL_EDGE, state="hidden")
         self.twist = c.create_text(x + 14, 0, font=(FONT, 10, "italic"), fill=DEEPER, anchor="nw",
                                    width=self.CARD_W - 28, state="hidden")
+        small = dict(size=9, fill=BLUSH, hover=HOT, fg=DEEP)
+        self.fav = PinkButton(c, (x, 500, x + 90, 534), f"{HEART} Save", self.toggle_favourite, **small)
+        self.did = PinkButton(c, (x + 98, 500, x + 188, 534), "We did it!", self.open_did_it, **small)
+        self.share = PinkButton(c, (x + 196, 500, x + 286, 534), "Copy for her", self.copy_for_her, **small)
+        self.cal = PinkButton(c, (x + 294, 500, x + 384, 534), "Calendar", self.open_calendar, **small)
         self.directions = PinkButton(c, (x, 546, x + 130, 582), "Directions", self.open_directions, size=10,
                                      fill=BLUSH, hover=HOT, fg=DEEP)
         self.again = PinkButton(c, (x + 142, 546, x + 290, 582), f"Pick another {HEART}", self.spin, size=10,
                                 fill=BLUSH, hover=HOT, fg=DEEP)
-        self.directions.set_enabled(False)
-        self.again.set_enabled(False)
+        self.surprise_note = c.create_text(x + self.CARD_W, 486, text="", font=(FONT, 9, "italic"),
+                                           fill=MUTED, anchor="e")
+        for button in (self.fav, self.did, self.share, self.cal, self.directions, self.again):
+            button.set_enabled(False)
         self.count = c.create_text(x + self.CARD_W, 124, font=(FONT, 9), fill=MUTED, anchor="ne")
 
         self._set_budget(self.budget)
@@ -329,6 +543,9 @@ class App:
         self._draw_disc()
         self._layout_card()
         self._animate()
+        if weather:
+            threading.Thread(target=lambda: self.weather_result.append(fetch_weather()), daemon=True).start()
+            self._wait_for_weather(0)
 
     # Questions
 
@@ -449,11 +666,17 @@ class App:
         if not candidates:
             self._show_none()
             return
-        choice = pick(candidates, self.recent)
+        favourites = set(self.memories["favourites"])
+        done = {d["name"] for d in self.memories["done"]}
+        choice = pick(candidates, self.recent, weigh=lambda i: weight(i, favourites, done, self.rainy))
         self.recent.append(choice["name"])
+        self._start_shuffle(candidates, choice)
+
+    def _start_shuffle(self, candidates, choice):
         self.spinning = True
-        for button in (self.go, self.again, self.directions):
+        for button in (self.go, self.again, self.directions, self.fav, self.did, self.share, self.cal):
             button.set_enabled(False)
+        self.c.itemconfig(self.surprise_note, text="")
         self.c.itemconfig(self.kicker, text=f"{HEART} PICKING {HEART}")
         for item in (self.where, self.facts, self.about):
             self.c.itemconfig(item, text="")
@@ -462,7 +685,8 @@ class App:
 
     def _shuffle(self, candidates, choice, step, frames=18):
         if step < frames:
-            self.c.itemconfig(self.name, text=random.choice(candidates)["name"], fill=MUTED)
+            teaser = ("Shh" + "." * (step % 4)) if self.surprise else random.choice(candidates)["name"]
+            self.c.itemconfig(self.name, text=teaser, fill=MUTED)
             self._layout_card()
             self._spin_marker(step)
             self.root.after(40 + step * 8, self._shuffle, candidates, choice, step + 1, frames)
@@ -478,24 +702,48 @@ class App:
         y = self.DISC_Y - math.sin(a) * (self.RADIUS - 12)
         self.c.create_text(x, y, text=HEART, font=(HEART_FONT, 20), fill="white", tags=("marker",))
 
-    def _show(self, idea):
+    def _show(self, idea, new_twist=True, reveal=False):
         self.current = idea
+        self.revealed = reveal or not self.surprise
+        if new_twist:
+            self.twist_now = random.choice(self.twists)
         c = self.c
-        c.itemconfig(self.kicker, text=f"{HEART} TONIGHT'S DATE {HEART}")
-        c.itemconfig(self.name, text=idea["name"], fill=INK)
-        c.itemconfig(self.where, text=idea["where"])
         vibes = " / ".join(v.capitalize() for v in idea["vibes"])
-        c.itemconfig(self.facts, text=f"{describe_drive(idea['minutes'])}   {HEART}   {describe_cost(idea['cost'])}"
-                                      f"   {HEART}   {vibes}")
-        c.itemconfig(self.about, text=idea["about"])
-        c.itemconfig(self.twist, text=f"{HEART} Cute twist: {random.choice(self.twists)}", state="normal")
+        facts = f"{describe_drive(idea['minutes'])}   {HEART}   {describe_cost(idea['cost'])}   {HEART}   {vibes}"
+        if self.revealed:
+            c.itemconfig(self.kicker, text=f"{HEART} TONIGHT'S DATE {HEART}")
+            c.itemconfig(self.name, text=idea["name"], fill=INK)
+            c.itemconfig(self.where, text=idea["where"] + ("  (your idea)" if idea.get("mine") else ""))
+            past = [d for d in self.memories["done"] if d["name"] == idea["name"]]
+            if past:
+                facts += f"\nYou've done this before and gave it {past[-1].get('rating', 5)} hearts"
+            if self.rainy and "outside" in idea["vibes"] and "inside" not in idea["vibes"]:
+                facts += "\nRain is likely today: take a brolly, or pick Inside"
+            c.itemconfig(self.facts, text=facts)
+            c.itemconfig(self.about, text=idea["about"])
+            c.itemconfig(self.surprise_note, text="")
+        else:
+            c.itemconfig(self.kicker, text=f"{HEART} SURPRISE DATE {HEART}")
+            c.itemconfig(self.name, text="Top secret date", fill=INK)
+            c.itemconfig(self.where, text="Only the planner gets to know")
+            c.itemconfig(self.facts, text=facts)
+            c.itemconfig(self.about, text=surprise_clues(idea))
+            c.itemconfig(self.surprise_note, text="Planner: press Reveal to see it")
+        c.itemconfig(self.twist, text=f"{HEART} Cute twist: {self.twist_now}", state="normal")
         c.itemconfig(self.twist_box, state="normal")
         self._layout_card()
         self.go.set_enabled(True)
         self.again.set_enabled(True)
-        self.directions.set_enabled(directions_url(idea) is not None)
-        bbox = c.bbox(self.name)
-        self._burst((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+        self.directions.set_text("Directions" if self.revealed else f"Reveal {HEART}")
+        self.directions.set_enabled(not self.revealed or directions_url(idea) is not None)
+        for button in (self.fav, self.did):
+            button.set_enabled(self.revealed)
+        self.share.set_enabled(True)
+        self.cal.set_enabled(True)
+        self._refresh_fav()
+        if new_twist:
+            bbox = c.bbox(self.name)
+            self._burst((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
 
     def _show_none(self):
         self.current = None
@@ -508,8 +756,8 @@ class App:
                                       "of the disc for any vibe.")
         self._hide_twist()
         self._layout_card()
-        self.directions.set_enabled(False)
-        self.again.set_enabled(False)
+        for button in (self.directions, self.again, self.fav, self.did, self.share, self.cal):
+            button.set_enabled(False)
 
     def _hide_twist(self):
         self.c.itemconfig(self.twist, state="hidden")
@@ -535,9 +783,301 @@ class App:
                 x1 - r, y1, x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
 
     def open_directions(self):
+        if self.current and not self.revealed:
+            self._show(self.current, new_twist=False, reveal=True)
+            bbox = self.c.bbox(self.name)
+            self._burst((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+            return
         url = self.current and directions_url(self.current)
         if url:
             webbrowser.open(url)
+
+    # Header toggles and weather
+
+    def toggle_surprise(self):
+        self.surprise = not self.surprise
+        self.surprise_button.set_look(DEEP if self.surprise else PANEL, "white" if self.surprise else DEEP)
+        self.surprise_button.set_text(f"Surprise {HEART}" if self.surprise else "Surprise")
+        self.toast("Surprise mode on: the next pick stays secret until you press Reveal" if self.surprise
+                   else "Surprise mode off")
+
+    def _wait_for_weather(self, tries):
+        if self.weather_result:
+            result = self.weather_result[0]
+            if result:
+                self.rainy = result["rainy"]
+                self.c.itemconfig(self.weather_text, text=result["summary"] +
+                                  (f"  {HEART}  fewer outdoor picks" if self.rainy else ""))
+            else:
+                self.c.itemconfig(self.weather_text, text="Weather unavailable (offline?)")
+        elif tries < 40:
+            self.root.after(250, self._wait_for_weather, tries + 1)
+        else:
+            self.c.itemconfig(self.weather_text, text="Weather unavailable (offline?)")
+
+    # Favourites, memories and your own ideas
+
+    def _refresh_fav(self):
+        saved = self.current is not None and self.current["name"] in self.memories["favourites"]
+        self.fav.set_text(f"{HEART} Saved" if saved else f"{HEART} Save")
+        self.fav.set_look(HOT if saved else BLUSH, "white" if saved else DEEP)
+
+    def _store(self):
+        if not save_memories(self.memories):
+            self.toast("Couldn't save to ~/.config/datenight")
+
+    def toggle_favourite(self):
+        name = self.current["name"]
+        favs = self.memories["favourites"]
+        if name in favs:
+            favs.remove(name)
+            self.toast("Removed from favourites")
+        else:
+            favs.append(name)
+            self.toast(f"Saved to favourites {HEART} it'll come up more often")
+        self._store()
+        self._refresh_fav()
+
+    def _dialog(self, title, width, height):
+        tk = self.tk
+        win = tk.Toplevel(self.root, bg=PANEL)
+        win.title(title)
+        win.resizable(False, False)
+        win.transient(self.root)
+        x = self.root.winfo_rootx() + (W - width) // 2
+        y = self.root.winfo_rooty() + (H - height) // 2
+        win.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+        tk.Label(win, text=title, font=(FONT, 16, "bold"), fg=DEEP, bg=PANEL).pack(anchor="w", padx=22, pady=(18, 4))
+        win.bind("<Escape>", lambda _e: win.destroy())
+        return win
+
+    def _button(self, parent, text, command, primary=True):
+        return self.tk.Button(parent, text=text, command=command, font=(FONT, 10, "bold"), relief="flat", bd=0,
+                              bg=DEEP if primary else BLUSH, fg="white" if primary else DEEP,
+                              activebackground=DEEPER if primary else HOT, activeforeground="white",
+                              padx=14, pady=6, cursor="hand2", highlightthickness=0)
+
+    def open_did_it(self):
+        tk, idea = self.tk, self.current
+        win = self._dialog("We did it!", 420, 300)
+        tk.Label(win, text=idea["name"], font=(FONT, 12, "bold"), fg=INK, bg=PANEL, wraplength=370,
+                 justify="left").pack(anchor="w", padx=22)
+        tk.Label(win, text="How was it?", font=(FONT, 10), fg=MUTED, bg=PANEL).pack(anchor="w", padx=22, pady=(10, 0))
+        rating = tk.IntVar(value=5)
+        hearts = tk.Canvas(win, width=230, height=44, bg=PANEL, highlightthickness=0, cursor="hand2")
+        hearts.pack(anchor="w", padx=18)
+
+        def draw(*_):
+            hearts.delete("all")
+            for k in range(5):
+                hearts.create_text(22 + k * 44, 22, text=HEART, font=(HEART_FONT, 26),
+                                   fill=DEEP if k < rating.get() else DIM)
+        hearts.bind("<Button-1>", lambda e: (rating.set(min(5, max(1, e.x // 44 + 1))), draw()))
+        draw()
+        tk.Label(win, text="A little note to remember it by (optional)", font=(FONT, 10), fg=MUTED,
+                 bg=PANEL).pack(anchor="w", padx=22, pady=(8, 2))
+        note = tk.Entry(win, font=(FONT, 11), relief="flat", bg="white", fg=INK, highlightthickness=1,
+                        highlightbackground=PANEL_EDGE, highlightcolor=HOT, insertbackground=DEEP)
+        note.pack(fill="x", padx=22, ipady=4)
+        note.focus_set()
+
+        def save(*_):
+            self.memories["done"].append({"name": idea["name"], "where": idea["where"], "date": date.today().isoformat(),
+                                          "rating": rating.get(), "note": note.get().strip(), "cost": idea["cost"],
+                                          "vibes": list(idea["vibes"])})
+            self._store()
+            win.destroy()
+            self.toast(f"Saved to your memories {HEART}")
+            self._show(idea, new_twist=False, reveal=True)
+        note.bind("<Return>", save)
+        row = tk.Frame(win, bg=PANEL)
+        row.pack(fill="x", padx=22, pady=16)
+        self._button(row, f"Save memory {HEART}", save).pack(side="right")
+        self._button(row, "Cancel", win.destroy, primary=False).pack(side="right", padx=8)
+
+    def open_memories(self):
+        tk = self.tk
+        win = self._dialog(f"Our memories {HEART}", 560, 560)
+        tk.Label(win, text=memory_stats(self.memories["done"]), font=(FONT, 10), fg=MUTED, bg=PANEL,
+                 wraplength=510, justify="left").pack(anchor="w", padx=22)
+        frame = tk.Frame(win, bg=PANEL)
+        frame.pack(fill="both", expand=True, padx=22, pady=10)
+        text = tk.Text(frame, font=(FONT, 11), bg="white", fg=INK, relief="flat", wrap="word", padx=12, pady=10,
+                       highlightthickness=1, highlightbackground=PANEL_EDGE, cursor="arrow")
+        bar = tk.Scrollbar(frame, command=text.yview, troughcolor=BLUSH, bg=TRACK, activebackground=HOT,
+                           relief="flat", bd=0)
+        text.config(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        text.pack(side="left", fill="both", expand=True)
+        text.tag_config("h", font=(FONT, 12, "bold"), foreground=DEEP, spacing1=6, spacing3=4)
+        text.tag_config("hearts", font=(HEART_FONT, 11), foreground=DEEP)
+        text.tag_config("muted", foreground=MUTED, font=(FONT, 9))
+        text.tag_config("b", font=(FONT, 11, "bold"))
+        text.tag_config("note", font=(FONT, 10, "italic"), foreground=DEEPER, spacing3=8)
+
+        text.insert("end", "Dates we've done\n", "h")
+        if not self.memories["done"]:
+            text.insert("end", "Nothing yet. After your next date, press \"We did it!\".\n\n", "muted")
+        for d in reversed(self.memories["done"]):
+            r = int(d.get("rating", 5))
+            try:
+                when = date.fromisoformat(d["date"]).strftime("%a %d %b %Y")
+            except (KeyError, ValueError):
+                when = ""
+            text.insert("end", HEART * r + "\u2661" * (5 - r), "hearts")
+            text.insert("end", f"   {when}\n", "muted")
+            text.insert("end", f"{d['name']}", "b")
+            text.insert("end", f"  ({d.get('where', '')})\n")
+            text.insert("end", f"\u201c{d['note']}\u201d\n" if d.get("note") else "\n", "note")
+
+        by_name = {i["name"]: i for i in self.ideas}
+        favs = [by_name[n] for n in self.memories["favourites"] if n in by_name]
+        text.insert("end", "Our favourites\n", "h")
+        if not favs:
+            text.insert("end", f"None yet. Press \"{HEART} Save\" on an idea you like.\n\n", "muted")
+        for i in favs:
+            text.insert("end", f"{HEART} ", "hearts")
+            text.insert("end", f"{i['name']}  ")
+            text.insert("end", f"{describe_drive(i['minutes'])}, {describe_cost(i['cost']).lower()}\n", "muted")
+        mine = [i for i in self.ideas if i.get("mine")]
+        if mine:
+            text.insert("end", "\nOur own ideas\n", "h")
+            for i in mine:
+                text.insert("end", f"{HEART} ", "hearts")
+                text.insert("end", f"{i['name']}\n")
+        text.config(state="disabled")
+
+        row = tk.Frame(win, bg=PANEL)
+        row.pack(fill="x", padx=22, pady=(0, 16))
+        self._button(row, "Close", win.destroy, primary=False).pack(side="right")
+        if favs:
+            def pick_favourite():
+                win.destroy()
+                if not self.spinning:
+                    choice = pick(favs, self.recent)
+                    self.recent.append(choice["name"])
+                    self._start_shuffle(favs, choice)
+            self._button(row, f"Pick one of our favourites {HEART}", pick_favourite).pack(side="right", padx=8)
+
+    def open_add_idea(self):
+        tk = self.tk
+        win = self._dialog("Add your own idea", 470, 500)
+        form = tk.Frame(win, bg=PANEL)
+        form.pack(fill="both", expand=True, padx=22)
+        entry = dict(font=(FONT, 11), relief="flat", bg="white", fg=INK, highlightthickness=1,
+                     highlightbackground=PANEL_EDGE, highlightcolor=HOT, insertbackground=DEEP)
+        label = dict(font=(FONT, 10, "bold"), fg=INK, bg=PANEL, anchor="w")
+        fields = {}
+        for row, (key, text, hint) in enumerate([("name", "Name", "Ice cream at the seaside"),
+                                                 ("where", "Where", "Skegness"),
+                                                 ("maps", "Google Maps search (optional)", "")]):
+            tk.Label(form, text=text, **label).grid(row=row * 2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            fields[key] = tk.Entry(form, **entry)
+            fields[key].grid(row=row * 2 + 1, column=0, columnspan=2, sticky="ew", ipady=3)
+        form.columnconfigure(0, weight=1)
+        form.columnconfigure(1, weight=1)
+        minutes, cost = tk.IntVar(value=20), tk.IntVar(value=30)
+        tk.Label(form, text="Minutes' drive", **label).grid(row=6, column=0, sticky="w", pady=(8, 0))
+        tk.Label(form, text="Cost for two (£)", **label).grid(row=6, column=1, sticky="w", pady=(8, 0))
+        spin = dict(font=(FONT, 11), relief="flat", bg="white", fg=INK, width=8, buttonbackground=BLUSH,
+                    highlightthickness=1, highlightbackground=PANEL_EDGE)
+        tk.Spinbox(form, from_=0, to=DRIVE_MAX, increment=5, textvariable=minutes, **spin).grid(row=7, column=0,
+                                                                                               sticky="w")
+        tk.Spinbox(form, from_=0, to=1000, increment=5, textvariable=cost, **spin).grid(row=7, column=1, sticky="w")
+        tk.Label(form, text="Vibe", **label).grid(row=8, column=0, sticky="w", pady=(8, 0))
+        checks = tk.Frame(form, bg=PANEL)
+        checks.grid(row=9, column=0, columnspan=2, sticky="w")
+        vibe_vars = {}
+        for v in VIBES:
+            vibe_vars[v] = tk.BooleanVar(value=(v == self.vibe))
+            tk.Checkbutton(checks, text=v.capitalize(), variable=vibe_vars[v], font=(FONT, 10), bg=PANEL, fg=INK,
+                           activebackground=PANEL, selectcolor="white", highlightthickness=0).pack(side="left",
+                                                                                                    padx=(0, 10))
+        tk.Label(form, text="What you'll do", **label).grid(row=10, column=0, sticky="w", pady=(8, 0))
+        about = tk.Entry(form, **entry)
+        about.grid(row=11, column=0, columnspan=2, sticky="ew", ipady=3)
+        error = tk.Label(form, text="", font=(FONT, 9), fg=DEEP, bg=PANEL)
+        error.grid(row=12, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        fields["name"].focus_set()
+
+        def save(*_):
+            name = fields["name"].get().strip()
+            vibes = [v for v in VIBES if vibe_vars[v].get()]
+            try:
+                mins, price = int(minutes.get()), int(cost.get())
+            except (ValueError, self.tk.TclError):
+                mins = price = -1
+            if not name:
+                return error.config(text="Give your idea a name.")
+            if any(i["name"].lower() == name.lower() for i in self.ideas):
+                return error.config(text="There's already an idea with that name.")
+            if not vibes:
+                return error.config(text="Tick at least one vibe.")
+            if not (0 <= mins <= DRIVE_MAX and price >= 0):
+                return error.config(text=f"Drive must be 0 to {DRIVE_MAX} minutes and cost 0 or more.")
+            idea = {"name": name, "where": fields["where"].get().strip() or "Somewhere special", "minutes": mins,
+                    "cost": price, "vibes": vibes, "about": about.get().strip() or "Your own idea.",
+                    "maps": fields["maps"].get().strip()}
+            self.memories["my_ideas"].append(idea)
+            self._store()
+            self.ideas = merge_my_ideas(self.ideas, [idea])
+            self._update_count()
+            win.destroy()
+            self.toast(f"Added \u201c{name}\u201d {HEART} {len(self.ideas)} ideas now")
+        win.bind("<Return>", save)
+        row = tk.Frame(win, bg=PANEL)
+        row.pack(fill="x", padx=22, pady=16)
+        self._button(row, f"Add idea {HEART}", save).pack(side="right")
+        self._button(row, "Cancel", win.destroy, primary=False).pack(side="right", padx=8)
+
+    # Sharing
+
+    def copy_for_her(self):
+        idea = self.current
+        if self.revealed:
+            message = share_text(idea, self.twist_now)
+        else:
+            message = (f"{HEART} I've planned a surprise date for us! {HEART}\n"
+                       f"{surprise_clues(idea)}\nCute twist: {self.twist_now}")
+        self.root.clipboard_clear()
+        self.root.clipboard_append(message)
+        self.toast("Copied! Paste it into WhatsApp or a text now (Ctrl+V)")
+
+    def open_calendar(self):
+        tk, idea = self.tk, self.current
+        secret = not self.revealed
+        win = self._dialog("Add to calendar", 380, 330)
+        hour, minute = start_time(idea)
+        tk.Label(win, text=f"When? It starts at {hour}:{minute:02d} and lasts three hours, with a reminder "
+                           "two hours before.", font=(FONT, 10), fg=MUTED, bg=PANEL, wraplength=330,
+                 justify="left").pack(anchor="w", padx=22, pady=(0, 8))
+
+        def save(day):
+            event = dict(idea, name="Surprise date night", where="It's a surprise",
+                         about=surprise_clues(idea), maps="") if secret else idea
+            path = desktop_dir() / f"date-night-{day.isoformat()}.ics"
+            try:
+                path.write_text(make_ics(event, day, self.twist_now), encoding="utf-8", newline="")
+            except OSError:
+                self.toast("Couldn't save the calendar file")
+                return
+            win.destroy()
+            self.toast(f"Saved {path.name} to your {'Desktop' if path.parent.name == 'Desktop' else 'home folder'}: "
+                       "open it to add to your calendar")
+        for text, day in calendar_days(date.today()):
+            self._button(win, f"{text}  ({day.strftime('%a %d %b')})", lambda d=day: save(d),
+                         primary=False).pack(fill="x", padx=22, pady=3)
+
+    def toast(self, message):
+        c = self.c
+        c.delete("toast")
+        text = c.create_text(W / 2, H - 22, text=message, font=(FONT, 10, "bold"), fill="white", tags=("toast",))
+        x0, y0, x1, y1 = c.bbox(text)
+        box = round_rect(c, x0 - 16, y0 - 7, x1 + 16, y1 + 7, 14, fill=DEEP, outline="", tags=("toast",))
+        c.tag_raise(text, box)
+        if getattr(self, "_toast_job", None):
+            self.root.after_cancel(self._toast_job)
+        self._toast_job = self.root.after(3200, lambda: c.delete("toast"))
 
     def _save(self):
         save_settings({"budget": self.budget, "minutes": self.minutes, "vibe": self.vibe})
@@ -563,7 +1103,7 @@ def main(argv: list[str]) -> int:
         try:
             root = tk.Tk(className="datenight")
             root.withdraw()
-            App(root, ideas, twists)
+            App(root, ideas, twists, weather=False)
             root.update_idletasks()
             root.destroy()
         except tk.TclError as exc:

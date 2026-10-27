@@ -100,3 +100,76 @@ def test_bad_ideas_file_is_reported(tmp_path):
         assert "wild" in str(exc)
     else:
         raise AssertionError("expected a ValueError")
+
+
+def test_favourites_are_picked_more_and_done_dates_and_rainy_walks_less():
+    walk = {"name": "Walk", "vibes": ["outside"]}
+    museum = {"name": "Museum", "vibes": ["inside"]}
+    assert dn.weight(walk, favourites={"Walk"}) == 3
+    assert dn.weight(walk, done={"Walk"}) == 0.25
+    assert dn.weight(walk, rainy=True) < 1
+    assert dn.weight(museum, rainy=True) == 1
+    rng = random.Random(7)
+    picks = [dn.pick([walk, museum], deque(), rng, weigh=lambda i: dn.weight(i, favourites={"Museum"}))["name"]
+             for _ in range(400)]
+    assert picks.count("Museum") > picks.count("Walk") * 2
+
+
+def test_memories_round_trip_and_your_ideas_join_the_list(tmp_path):
+    path = tmp_path / "memories.json"
+    assert dn.load_memories(path) == {"favourites": [], "done": [], "my_ideas": []}
+    mine = {"name": "Chips at Skegness", "where": "Skegness", "minutes": 60, "cost": 20, "vibes": ["outside"],
+            "about": "Seaside."}
+    assert dn.save_memories({"favourites": ["Walk"], "done": [], "my_ideas": [mine, {"name": "broken"}]}, path)
+    loaded = dn.load_memories(path)
+    merged = dn.merge_my_ideas(IDEAS, loaded["my_ideas"])
+    assert len(merged) == len(IDEAS) + 1 and merged[-1]["mine"]
+    assert len(dn.merge_my_ideas(merged, [mine])) == len(merged)  # no duplicates
+
+
+def test_memory_stats():
+    assert "No dates" in dn.memory_stats([])
+    done = [{"name": "a", "rating": 4, "cost": 30, "vibes": ["inside"]},
+            {"name": "b", "rating": 5, "cost": 10, "vibes": ["inside", "chill"]}]
+    stats = dn.memory_stats(done)
+    assert "2 dates" in stats and "£40" in stats and "4.5 hearts" in stats and "inside" in stats
+
+
+def test_share_text_has_everything_she_needs():
+    idea = next(i for i in IDEAS if i["name"] == "Bradgate Park walk")
+    text = dn.share_text(idea, "Hold hands.")
+    assert "Bradgate Park walk" in text and "Hold hands." in text and "google.com/maps" in text
+
+
+def test_surprise_clues_never_give_the_place_away():
+    for idea in IDEAS[:300]:
+        clue = dn.surprise_clues(idea)
+        assert idea["name"] not in clue and (idea["where"] == "At home" or idea["where"] not in clue)
+
+
+def test_calendar_file():
+    idea = next(i for i in IDEAS if i["name"] == "Warwick Castle")
+    ics = dn.make_ics(idea, dn.date(2026, 10, 31), "Wear pink, of course; obviously")
+    assert ics.startswith("BEGIN:VCALENDAR\r\n") and ics.endswith("END:VCALENDAR\r\n")
+    assert "DTSTART:20261031T110000" in ics  # outdoor days start late morning
+    assert r"Wear pink\, of course\; obviously" in ics
+    assert "BEGIN:VALARM" in ics
+
+
+def test_calendar_days():
+    tuesday = dn.date(2026, 10, 27)
+    days = dict(dn.calendar_days(tuesday))
+    assert days["Tonight"] == tuesday and days["This Saturday"] == dn.date(2026, 10, 31)
+    assert days["Saturday after"] == dn.date(2026, 11, 7)
+    saturday = dict(dn.calendar_days(dn.date(2026, 10, 31)))
+    assert "This Saturday" not in saturday and saturday["Next Saturday"] == dn.date(2026, 11, 7)
+    friday = dict(dn.calendar_days(dn.date(2026, 10, 30)))
+    assert "This Saturday" not in friday and friday["Saturday after"] == dn.date(2026, 11, 7)
+
+
+def test_weather_parsing():
+    wet = {"daily": {"weather_code": [63], "temperature_2m_max": [11.4], "precipitation_probability_max": [85]}}
+    dry = {"daily": {"weather_code": [1], "temperature_2m_max": [19.6], "precipitation_probability_max": [5]}}
+    assert dn.parse_weather(wet) == {"summary": "Today: Rain, 11°C, 85% chance of rain", "rainy": True}
+    assert dn.parse_weather(dry)["rainy"] is False
+    assert dn.parse_weather({"oops": 1}) is None

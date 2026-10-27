@@ -22,9 +22,12 @@ ok() { printf '  \033[32m✔\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✘\033[0m %s\n' "$*"; }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  rm -rf "$DEST" "$HOME/.config/datenight"
+  rm -rf "$DEST"
   rm -f "$MENU_FILE" "$DESKTOP_FILE"
   say "Date Night Picker has been removed."
+  if [[ -d "$HOME/.config/datenight" ]]; then
+    echo "Your memories, favourites and own ideas are still in ~/.config/datenight, so reinstalling brings them back."
+  fi
   exit 0
 fi
 

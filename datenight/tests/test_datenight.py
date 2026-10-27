@@ -8,7 +8,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import datenight as dn  # noqa: E402
 
-IDEAS = dn.load_ideas()
+IDEAS, TWISTS = dn.load_data()
+
+
+def test_there_are_about_a_thousand_ideas_and_plenty_of_twists():
+    assert len(IDEAS) >= 1000
+    assert len(TWISTS) >= 30
 
 
 def test_every_idea_is_within_an_hour_and_has_a_sensible_price():
@@ -63,6 +68,27 @@ def test_directions_start_from_home_postcode():
     assert query["destination"] == ["Bradgate Park, UK"]
     assert query["travelmode"] == ["driving"]
     assert dn.directions_url({"maps": ""}) is None
+
+
+def test_templates_fill_in_each_town_and_option():
+    data = {"towns": [{"name": "Rugby", "minutes": 25, "size": "town"},
+                      {"name": "Kibworth", "minutes": 8, "size": "village"}],
+            "templates": [{"name": "Dinner in {town}", "sizes": ["town"], "cost": 40, "vibes": ["inside"],
+                           "about": "Eat in {town}.", "maps": "restaurants {town}"},
+                          {"name": "Cook {x}", "options": ["Thai", "Greek"], "where": "At home", "minutes": 0,
+                           "cost": 20, "vibes": ["chill"], "about": "{x} night."}]}
+    ideas = {i["name"]: i for i in dn.expand(data)}
+    assert set(ideas) == {"Dinner in Rugby", "Cook Thai", "Cook Greek"}
+    assert ideas["Dinner in Rugby"]["minutes"] == 25
+    assert ideas["Dinner in Rugby"]["maps"] == "restaurants Rugby"
+    assert ideas["Cook Greek"]["about"] == "Greek night."
+
+
+def test_old_list_format_still_loads(tmp_path):
+    old = tmp_path / "ideas.json"
+    old.write_text('[{"name": "Walk", "where": "x", "minutes": 5, "cost": 0, "vibes": ["outside"], "about": "y"}]')
+    ideas, twists = dn.load_data(old)
+    assert [i["name"] for i in ideas] == ["Walk"] and twists == []
 
 
 def test_bad_ideas_file_is_reported(tmp_path):

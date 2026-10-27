@@ -1,12 +1,12 @@
 # Date Night Picker
 
-A small desktop app that picks a date night for you and your girlfriend, within an hour of **LE8 8AL (Fleckney, Leicestershire)**.
+A pink, heart-covered desktop app that picks a date night for you and your girlfriend from **over 1000 ideas** within an hour of **LE8 8AL (Fleckney, Leicestershire)**.
 
-1. **How much would you like to spend?** A slider from free up to £200+ (the top means no limit). Prices are rough totals for two.
-2. **How many minutes' drive from LE8 8AL?** A slider from 0 (stay at home) to 60 minutes.
-3. **Pick a vibe** on the disc: **Inside**, **Outside** or **Chill**. Click the middle for any vibe.
+1. **How much would you like to spend?** Drag the heart along the slider, from free up to £200+ (the top means no limit). Prices are rough totals for two.
+2. **How many minutes' drive from LE8 8AL?** Drag the heart from 0 (stay at home) to 60 minutes.
+3. **Spin the love disc:** pick **Inside**, **Outside** or **Chill**. Click the heart in the middle for any vibe.
 
-Then press **Pick our date night** (or Enter/Space). A marker spins round the disc, the ideas shuffle, and it lands on one. **Directions** opens Google Maps with the route from LE8 8AL, and **Pick another** rolls again without repeating your recent picks. The app remembers your last answers.
+Then press **Pick our date night** (or Enter/Space). A heart spins round the disc, the ideas shuffle, it lands on one with a burst of hearts, and it adds a random **cute twist** (like "wear matching colours" or "plan your next date before you get home"). **Directions** opens Google Maps with the route from LE8 8AL, and **Pick another** rolls again without repeating your recent picks. The app remembers your last answers.
 
 ## Install on Ubuntu (one command)
 
@@ -30,21 +30,29 @@ Afterwards, open it from:
 It was built for a Dell Inspiron 15-3567 (i5-7200U, 8 GB RAM) running Ubuntu 26.04 with XFCE on X11:
 
 - It's plain Python and Tkinter, so there's no browser, no Electron and no pip packages. It uses about 30 MB of RAM and no CPU while idle.
-- All 56 ideas are stored in `ideas.json`, so it works offline. Only the Directions button goes online.
-- The window is 900×580 and fits a 1366×768 screen with room for the panel.
+- Everything is drawn on one canvas, and the floating hearts move about 26 small shapes 16 times a second, which barely registers on the CPU. The animation pauses while the window is minimised.
+- All the ideas are stored in `ideas.json`, so it works offline. Only the Directions button goes online.
+- The window is 940×620 and fits a 1366×768 screen with room for the panel.
 
-## Add your own ideas
+## Where the 1000+ ideas come from
 
-Edit `~/.local/share/datenight/ideas.json`. Each idea looks like this:
+`ideas.json` has four parts:
+
+- **ideas:** about 140 hand-written dates, such as Bradgate Park, Foxton Locks, Rutland Water, Warwick Castle, theatres, museums, steam railways and 40 cosy nights in.
+- **towns:** about 50 real cities, towns and villages within an hour, each with its drive time from LE8 8AL.
+- **templates:** date ideas that work in any town of a given size. For example, "Dinner date in {town}" becomes one idea for every town, so you get "Dinner date in Stamford", "Dinner date in Oakham" and so on. Village templates are things like a country pub lunch or a sunset walk. Other templates repeat over options, such as 16 cuisines to cook at home or 16 movie marathons.
+- **twists:** 40 cute extras, and one is added to every date.
+
+To add your own idea, put one line in the `ideas` list of `~/.local/share/datenight/ideas.json`:
 
 ```json
 {"name": "Foxton Locks walk and pub", "where": "Foxton", "minutes": 15, "cost": 35,
  "vibes": ["outside", "chill"], "about": "What you'll do.", "maps": "Foxton Locks"}
 ```
 
-`minutes` is the drive from LE8 8AL. `cost` is a rough total for two in pounds. `vibes` can include any of `inside`, `outside` and `chill`. `maps` is what Google Maps should search for; leave it empty for at-home ideas. Running the installer again updates the list and saves your edited copy as `ideas.json.bak` first.
+`minutes` is the drive from LE8 8AL. `cost` is a rough total for two in pounds. `vibes` can include any of `inside`, `outside` and `chill`. `maps` is what Google Maps should search for; leave it empty for at-home ideas. If you add a town to `towns`, every matching template is applied to it as well. Running the installer again updates the list and saves your edited copy as `ideas.json.bak` first.
 
-Drive times and prices are estimates. Check opening times and book ahead for shows, castles and seasonal places.
+Drive times and prices are estimates. Town templates are general ("an escape room in Coventry"), so search Directions to find the actual place, and check opening times. Book ahead for shows, castles and seasonal places.
 
 ## Files
 

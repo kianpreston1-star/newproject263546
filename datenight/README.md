@@ -43,8 +43,19 @@ Your memories, photos, favourites, own ideas and settings live in `~/.config/dat
 The `web/` folder is a phone version with the same ideas and almost everything above: the four questions, seasons, weather, both of us, surprise mode, favourites, the date diary with photos, memories, streaks, badges, year in review, opening hours, sounds, sharing, calendar, and backup and restore. Sharing uses the phone's own Share button.
 
 1. Put it online for free with GitHub Pages. On GitHub, open this repository, go to **Settings → Pages**, choose **Deploy from a branch**, pick the `claude/determined-bardeen-vvrlm3` branch and the **/ (root)** folder, then click **Save**.
-2. After about a minute, open **https://kianpreston1-star.github.io/newproject263546/datenight/web/** on each phone.
-3. Add it to the home screen. On an iPhone, open it in Safari, tap Share, then **Add to Home Screen**. On Android, open it in Chrome, tap ⋮, then **Add to Home screen** or **Install app**. It then opens full screen with the heart icon.
+2. After about a minute, open **https://kianpreston1-star.github.io/newproject263546/datenight/web/** in **Safari** on each iPhone.
+3. A pink banner at the top explains how to install it: tap the **Share** button at the bottom of Safari, scroll down, tap **Add to Home Screen**, then **Add**.
+4. From then on, open it from the **heart icon** on your home screen. It opens full screen like any other app, and the banner disappears.
+
+As a home-screen app, it:
+
+- **Works offline:** after the first open, it loads with no signal. Only the weather, Directions and Open? need the internet. Updates download by themselves in the background and show the next time you open it.
+- **Keeps your data:** it asks iOS to keep its memories and photos rather than clearing them when space is short.
+- **Shares backups through the iPhone share sheet:** **Back up** opens it, so you can send the file to each other on WhatsApp or save it to Files or iCloud. **Restore** reads it back.
+
+The installed app keeps its data separately from Safari. If you've already logged dates in Safari, press **Back up** there first, then **Restore** inside the installed app.
+
+A version in the App Store would need a Mac, Xcode and Apple's developer membership (£79 a year). The home-screen app gives you the same experience for free.
 
 **Keeping the phones and the laptop in step:** each device keeps its own memories. To share them, press **Back up** on one device, send the file (WhatsApp, email or Google Drive), and press **Restore** on the other. Backups from the phone and the laptop are the same format, and restoring merges rather than overwrites. Live automatic syncing would need a paid server, so it isn't included.
 
@@ -100,7 +111,7 @@ Drive times and prices are estimates. Town templates are general ("an escape roo
 
 - `datenight.py`: the window. Run `python3 datenight.py --check` to test that it can start.
 - `datecore.py`: the logic (picking, seasons, occasions, streaks, opening hours, sounds, backups, year in review).
-- `web/`: the phone version.
+- `web/`: the phone version (`index.html`, plus `sw.js`, which makes it work offline, and the app icons).
 - `ideas.json`: the date ideas.
 - `icon.svg`: the launcher icon.
 - `install.sh`: the installer and uninstaller.

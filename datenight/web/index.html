@@ -128,6 +128,10 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
 .burst { position: fixed; pointer-events: none; z-index: 5; animation: burst .9s ease-out forwards; }
 @keyframes burst { to { transform: translate(var(--dx), var(--dy)) scale(.6); opacity: 0; } }
 .loading { text-align: center; color: var(--muted); padding: 40px 0; }
+.install { position: relative; background: #fff; border: 2px solid var(--hot); border-radius: 20px; padding: 14px 40px 14px 14px; margin: 12px 0 4px; font-size: 14px; line-height: 1.45; }
+.install b { color: var(--deep); }
+.install .share-icon { display: inline-block; width: 18px; height: 18px; vertical-align: -3px; }
+.install .close { position: absolute; top: 6px; right: 6px; border: 0; background: none; color: var(--muted); font-size: 22px; cursor: pointer; padding: 4px 8px; }
 </style>
 </head>
 <body>
@@ -138,6 +142,11 @@ dialog input[type=text], dialog input[type=date], dialog input[type=number], dia
     <p id="subtitle">Made with love, for the two of us</p>
     <p class="weather" id="weather">Checking the weather...</p>
   </header>
+
+  <div class="install" id="install" hidden>
+    <button class="close" id="install-close" aria-label="Hide">&times;</button>
+    <div id="install-text"></div>
+  </div>
 
   <nav class="pills">
     <button class="pill" id="open-memories">Memories &#9829;</button>
@@ -997,7 +1006,18 @@ $("mem-log").onclick = () => openLog();
 $("mem-backup").onclick = async () => {
   const photos = {};
   for (const d of state.memories.done) for (const n of entryPhotos(d)) { const b = await photoDB.get(n); if (b) photos[n] = b; }
-  download(`date-night-backup-${todayISO()}.json`, JSON.stringify({ app: "datenight", version: 1, saved: new Date().toISOString(), memories: state.memories, photos }), "application/json");
+  const name = `date-night-backup-${todayISO()}.json`;
+  const content = JSON.stringify({ app: "datenight", version: 1, saved: new Date().toISOString(), memories: state.memories, photos });
+  // On an iPhone this opens the share sheet: send it to each other on WhatsApp, or Save to Files / iCloud.
+  try {
+    const file = new File([content], name, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "Date Night backup" });
+      toast(`Backup shared ${HEART}`);
+      return;
+    }
+  } catch (e) { if (e.name === "AbortError") return; }
+  download(name, content, "application/json");
   toast("Backup saved. Send it to the laptop or keep it in Google Drive");
 };
 $("mem-restore").onchange = async (e) => {
@@ -1117,6 +1137,39 @@ async function start() {
     $("weather").textContent = w.summary + (w.rainy ? `  ${HEART}  fewer outdoor picks` : "");
   } catch { $("weather").textContent = "Weather unavailable"; }
 }
+// Making it an app: works offline, asks to keep its data, and shows how to install it
+
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+const SHARE_ICON = `<svg class="share-icon" viewBox="0 0 24 24" fill="none" stroke="#007aff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5M5 12v8h14v-8"/></svg>`;
+let installEvent = null;
+function showInstall() {
+  if (isStandalone() || store.get("install-hidden", false)) return;
+  const box = $("install"), text = $("install-text");
+  if (isIOS) {
+    const inSafari = !/CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+    text.innerHTML = `<b>${HEART} Make it an app on your iPhone</b><br>` +
+      (inSafari ? `Tap the Share button ${SHARE_ICON} at the bottom of Safari, scroll down, tap <b>Add to Home Screen</b>, then <b>Add</b>.`
+                : `Tap the Share button ${SHARE_ICON}, then <b>Add to Home Screen</b>. If you don't see it, open this page in Safari.`) +
+      `<br><span class="muted">Then open it from the heart icon on your home screen. It works offline too. ` +
+      `If you've already logged dates here, press Back up in Memories first, then Restore inside the app.</span>`;
+    box.hidden = false;
+  } else if (installEvent) {
+    text.innerHTML = `<b>${HEART} Make it an app</b><br>Install it so it opens from your home screen and works offline.<br><button class="btn primary" id="install-go" style="margin-top:8px">Install app</button>`;
+    box.hidden = false;
+    $("install-go").onclick = async () => { installEvent.prompt(); await installEvent.userChoice; installEvent = null; box.hidden = true; };
+  }
+}
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; showInstall(); });
+addEventListener("appinstalled", () => { $("install").hidden = true; toast(`Installed ${HEART} open it from your home screen`); });
+$("install-close").onclick = () => { $("install").hidden = true; store.set("install-hidden", true); };
+if ("serviceWorker" in navigator) {
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => { /* still works online */ }));
+}
+// Ask the phone not to clear our memories and photos when it's short of space.
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
+
+showInstall();
 start();
 </script>
 </body>

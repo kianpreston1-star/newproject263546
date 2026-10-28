@@ -1,0 +1,20 @@
+{
+  "title": "Octopuses have three hearts, and that's not even the weird part",
+  "hook_text": "3 hearts. Blue blood.",
+  "category": "science",
+  "mood": "upbeat",
+  "scenes": [
+    {"text": "This animal has three hearts, blue blood, and it can taste with its arms.", "visual": "octopus swimming", "highlight": ["three", "blue"]},
+    {"text": "Meet the octopus, the closest thing to an alien living on Earth.", "visual": "octopus underwater close up", "highlight": ["alien"]},
+    {"text": "Two of its hearts pump blood through the gills. The third pumps it around the body.", "visual": "coral reef underwater", "highlight": ["gills", "body"]},
+    {"text": "And here's the twist: that third heart stops beating when it swims.", "visual": "ocean waves underwater light", "highlight": ["twist", "stops"]},
+    {"text": "That's why octopuses prefer crawling. Swimming wears them out fast.", "visual": "sea floor rocks", "highlight": ["crawling"]},
+    {"text": "Their blood is blue because it carries oxygen with copper, not iron like ours.", "visual": "deep blue ocean", "highlight": ["copper"]},
+    {"text": "Most of their neurons aren't even in their head. They're spread through all eight arms.", "visual": "octopus tentacles", "highlight": ["eight", "arms"]},
+    {"text": "So each arm can explore, touch and taste on its own.", "visual": "diver exploring reef", "highlight": ["taste"]},
+    {"text": "They can change colour in a fraction of a second, even though they're colour blind.", "visual": "colorful coral fish", "highlight": ["colour", "blind"]},
+    {"text": "So next time someone says aliens aren't real, remember this animal has three hearts.", "visual": "night sky stars", "highlight": ["aliens", "three"]}
+  ],
+  "description": "Three hearts, blue blood and arms that think for themselves: the octopus is the strangest animal in the sea.",
+  "hashtags": ["#octopus", "#science", "#animals", "#facts", "#ocean"]
+}

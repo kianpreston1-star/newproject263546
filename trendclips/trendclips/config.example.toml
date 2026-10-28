@@ -1,0 +1,55 @@
+# Trend Clips settings: ~/.trendclips/config.toml. Anything you leave out uses the default shown here.
+# `trendclips setup` fills in the keys for you; edit the rest by hand if you like, then run `trendclips check`.
+
+[trends]
+regions = ["GB", "US"]          # Google Trends countries to watch (two-letter codes)
+google_trends = true
+wikipedia = true                # pages whose views just jumped
+reddit = true
+youtube = true                  # YouTube's trending list; needs youtube.api_key
+repeat_after_days = 10          # don't cover the same topic again sooner than this
+allow_politics = false          # elections and politicians attract strikes and arguments
+avoid_words = []                # e.g. ["crypto", "reality tv"]: skip any trend containing these
+
+[ai]
+# Tried in order; ones that aren't set up are skipped.
+providers = ["gemini", "openai", "ollama"]
+gemini_api_key = ""             # free: https://aistudio.google.com/apikey
+gemini_model = "gemini-flash-latest"
+# Any OpenAI-compatible API also works, e.g. Groq's free tier:
+# openai_base_url = "https://api.groq.com/openai/v1"
+# openai_api_key = "..."
+# openai_model = "..."
+ollama_url = "http://localhost:11434"
+ollama_model = "gemma3:4b"      # the offline backup; run `ollama pull gemma3:4b` after installing Ollama
+audience = "the UK and the US"  # who the scripts are written for (British spelling when it mentions the UK)
+
+[video]
+per_run = 2                     # videos made by each daily run (1 to 3 a day is the sweet spot)
+target_seconds = 65             # over 60 s qualifies for TikTok's Creator Rewards and is still a YouTube Short
+voice = "af_heart"              # "auto" picks a voice to suit each topic; others: af_bella, am_michael, am_fenrir,
+                                # am_puck, bf_emma (British), bm_george (British)
+voice_speed = 1.12
+music_volume = 0.16             # background music level; it also dips automatically while the voice speaks
+handle = ""                     # your @name, shown faintly in the corner
+smart_footage = true            # an image-matching AI checks each stock clip fits what's being said
+allow_share_alike_images = false  # also use CC BY-SA photos from Wikipedia (see the README first)
+output_dir = "~/Videos/TrendClips"
+preset = "veryfast"             # x264 speed; "faster" or "medium" make slightly smaller files but take longer
+
+[footage]
+pexels_api_key = ""             # free: https://www.pexels.com/api/
+pixabay_api_key = ""            # free: https://pixabay.com/api/docs/
+
+[telegram]
+bot_token = ""                  # from @BotFather; `trendclips setup` connects your chat
+chat_id = ""
+
+[youtube]
+api_key = ""                    # free; trending videos and view counts
+channel_id = ""                 # starts with UC
+upload = false                  # upload approved videos automatically (run `trendclips youtube-login`)
+privacy = "public"              # "public", "unlisted" or "private"
+
+[schedule]
+daily_time = "17:30"            # change it with `trendclips schedule 18:00`

@@ -1,0 +1,9 @@
+__pycache__/
+*.egg-info/
+build/
+.venv/
+.pytest_cache/
+# Keys, the YouTube sign-in and videos live in ~/.trendclips and ~/Videos, outside the repository.
+youtube-*.json
+config.toml
+*.mp4

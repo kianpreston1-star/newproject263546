@@ -29,7 +29,7 @@ trendclips = "trendclips.cli:main"
 packages = ["trendclips"]
 
 [tool.setuptools.package-data]
-trendclips = ["config.example.toml", "demo_script.json", "icon.svg"]
+trendclips = ["config.example.toml", "demo_script.json", "demo_duo.json", "icon.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

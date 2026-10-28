@@ -1,0 +1,23 @@
+{
+  "title": "Octopuses have three hearts, and one of them quits when it swims",
+  "hook_text": "THREE hearts?!",
+  "category": "science",
+  "mood": "upbeat",
+  "scenes": [
+    {"speaker": "dave", "text": "Hang on. Octopuses have three hearts? What does it need three for, a love triangle?", "visual": "octopus swimming", "highlight": ["three"]},
+    {"speaker": "nibbles", "text": "Two of them pump blood through the gills, Dave. The third pumps it around the body.", "visual": "octopus underwater close up", "highlight": ["gills", "body"]},
+    {"speaker": "dave", "text": "So it's got a spare. Like me with kebabs.", "visual": "coral reef underwater", "highlight": ["spare"]},
+    {"speaker": "nibbles", "text": "Not quite. That third heart actually stops beating when the octopus swims.", "visual": "ocean waves underwater light", "highlight": ["stops"]},
+    {"speaker": "dave", "text": "It stops? Mate, that's how I feel after the stairs.", "visual": "man climbing stairs", "highlight": ["stairs"]},
+    {"speaker": "nibbles", "text": "Which is exactly why octopuses prefer crawling. Swimming wears them out.", "visual": "sea floor rocks", "highlight": ["crawling"]},
+    {"speaker": "dave", "text": "Finally, an animal that gets me. What else has it got?", "visual": "diver exploring reef", "highlight": ["gets"]},
+    {"speaker": "nibbles", "text": "Blue blood. It carries oxygen using copper, not iron like ours.", "visual": "deep blue ocean", "highlight": ["copper"]},
+    {"speaker": "dave", "text": "Blue blood? So it's posh. Like you, but wetter.", "visual": "fancy tea party", "highlight": ["posh"]},
+    {"speaker": "nibbles", "text": "Charming. Also, most of its brain cells are in its eight arms, not its head.", "visual": "octopus tentacles", "highlight": ["arms"]},
+    {"speaker": "dave", "text": "So its arms are smarter than its head? Nibbles, I think I'm part octopus.", "visual": "man scratching head", "highlight": ["smarter"]},
+    {"speaker": "nibbles", "text": "Dave, your arms couldn't open a crisp packet yesterday.", "visual": "crisp packet", "highlight": ["crisp"]},
+    {"speaker": "dave", "text": "That packet was rigged. Anyway, why does it have three hearts again?", "visual": "octopus swimming", "highlight": ["three"]}
+  ],
+  "description": "Three hearts, blue blood and arms that think for themselves: Big Dave and Professor Nibbles on the strangest animal in the sea.",
+  "hashtags": ["#octopus", "#science", "#animals", "#funny", "#facts"]
+}

@@ -3,6 +3,7 @@ import pytest
 
 from conftest import FakeLLM, script_reply
 from trendclips import pipeline
+from trendclips.characters import BUILT_IN
 from trendclips.pipeline import Busy, Produced, job_lock, make_videos, pick_music, post_text, slug
 from trendclips.research import Research
 from trendclips.telegram import Bot, approval_caption, stats_text
@@ -41,16 +42,20 @@ def fake_run(monkeypatch, cfg, tmp_path):
     monkeypatch.setattr(pipeline.Researcher, "gather", lambda self, t: Research(
         t.title, ["A solid fact about the topic. " * 8], ["https://www.bbc.co.uk/news/1"]))
 
-    def produce(self, script, image=None, progress=lambda m: None):
+    def produce(self, script, image=None, progress=lambda m: None, cast=None):
+        produced_scripts.append(script)
         path = tmp_path / f"{slug(script.title)}.mp4"
         path.write_bytes(b"video")
         return Produced(path, 64.0, 300.0, "af_heart", 22, 20)
 
+    produced_scripts = []
     monkeypatch.setattr(pipeline.Studio, "produce", produce)
+    monkeypatch.setattr(pipeline, "load_cast", lambda ids, custom, sprites: [BUILT_IN[i] for i in ids])
     llm = FakeLLM({"picks": [{"number": 1, "category": "science", "angle": "Early this year"}]},
                   script_reply(words_per_scene=15, scenes=12))
     monkeypatch.setattr(pipeline, "LLM", lambda cfg: llm)
     tg = FakeTelegram()
+    tg.scripts = produced_scripts
     monkeypatch.setattr("trendclips.telegram.Telegram", lambda token, chat: tg)
     return tg
 
@@ -67,6 +72,16 @@ def test_make_videos_records_and_sends_for_approval(cfg, store, paths, fake_run)
     assert buttons["inline_keyboard"][0][0]["callback_data"] == f"post:{made[0]}"
     assert any(line.startswith("Picked: polar vortex") for line in lines)
     assert store.recent_topic_keys(10) == ["polar vortex"]
+    # Two-character videos are the default: every line has a speaker, taking turns.
+    speakers = [s.speaker for s in fake_run.scripts[0].scenes]
+    assert set(speakers) == {"dave", "nibbles"} and speakers[:2] == ["dave", "nibbles"]
+    assert video["meta"]["cast"] == ["Big Dave", "Professor Nibbles"]
+
+
+def test_explainer_style_has_one_narrator(cfg, store, paths, fake_run):
+    cfg.video.style = "explainer"
+    make_videos(cfg, store, paths, 1, progress=lambda m: None)
+    assert all(s.speaker == "" for s in fake_run.scripts[0].scenes)
 
 
 def test_one_job_at_a_time(paths):

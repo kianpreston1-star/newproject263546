@@ -86,6 +86,53 @@ Reply with JSON only:
 "description": "<2 or 3 factual sentences for the video description>",
 "hashtags": ["#<tag>", "<3 to 5 relevant hashtags>"]}}"""
 
+DUO_SYSTEM = """You write viral two-character comedy explainer shorts (YouTube Shorts, TikTok, Instagram Reels) \
+for viewers in {audience}: two cartoon characters bicker their way through today's trending story while big \
+captions play over a satisfying background video. Your scripts are genuinely funny, accurate and fast."""
+
+DUO_PROMPT = """Write a dialogue about this trend.
+
+TREND: {topic}
+ANGLE: {angle}
+
+RESEARCH NOTES (the only facts you may use):
+{notes}
+
+CAST
+- "{a_id}", {a_name}: {a_bio}
+- "{b_id}", {b_name}: {b_bio}
+{a_name} asks the questions and gets things wrong; {b_name} knows the facts.
+
+RULES
+1. Facts: only {b_name} states facts, and only facts from the research notes. Never invent names, numbers, quotes, \
+dates, scores or reasons. {a_name}'s wrong guesses must be obviously silly and get corrected.
+2. Hook: line 1 is {a_name}, 12 words at most: a shocked or ridiculous question or claim that names the topic and \
+makes viewers need the answer.
+3. Comedy: at least three genuinely funny moments: absurd comparisons, misunderstandings, deadpan sarcasm, a callback \
+to an earlier joke. The banter is affectionate; they only ever tease each other.
+4. Flow: mostly alternate speakers. {b_name} explains the real story in small bites; {a_name} reacts, jokes and asks \
+the next question viewers are thinking. Every line makes the viewer want the next.
+5. Ending: finish on a punchline. Best of all, the last line leads straight back into the first so the video loops \
+when it replays. Never "like and subscribe".
+6. Lines: {min_lines} to {max_lines} lines of 4 to 20 words, written to be spoken: contractions, {spelling} \
+spelling, money and numbers as they're said ("5 million pounds", "40 percent"). No emojis, stage directions, \
+brackets, or the speaker's own name at the start of a line.
+7. Length: {lo} to {hi} words in total (about {seconds} seconds).
+8. Never mock real people, groups, illness or tragedies; no swearing stronger than "bloody"; no political opinions.
+9. For each line, "visual" is a 2 to 5 word stock-footage search showing what the line is about ("polar ice \
+aerial", "football stadium crowd"), never names of people or brands; "highlight" is the one or two most important \
+words, copied exactly from the line.
+
+Reply with JSON only:
+{{"title": "<YouTube title, 70 characters max: the subject plus curiosity; no false clickbait, no hashtags>",
+"hook_text": "<2 to 6 word on-screen headline shown for the first 2 seconds>",
+"category": "<one of: {categories}>",
+"mood": "<one of: {moods}>",
+"lines": [{{"speaker": "<{a_id} or {b_id}>", "text": "<what they say>", "visual": "<search>", \
+"highlight": ["<word>"]}}],
+"description": "<2 or 3 factual sentences for the video description>",
+"hashtags": ["#<tag>", "<3 to 5 relevant hashtags>"]}}"""
+
 REPAIR_PROMPT = """Your script has {words} words of narration, but it needs {lo} to {hi}. Rewrite it to fit: same \
 facts, same hook, same rules and the same JSON format. Here it is:
 
@@ -97,6 +144,7 @@ class Scene:
     text: str
     visual: str
     highlight: list[str] = field(default_factory=list)
+    speaker: str = ""  # character id in two-character videos
 
 
 @dataclass
@@ -182,20 +230,32 @@ def split_long(scenes: list[Scene], max_words: int = 26) -> list[Scene]:
         chunk: list[str] = []
         for sent in sentences:
             if chunk and len(" ".join(chunk + [sent]).split()) > max_words:
-                out.append(Scene(" ".join(chunk), s.visual, s.highlight))
+                out.append(Scene(" ".join(chunk), s.visual, s.highlight, s.speaker))
                 chunk = []
             chunk.append(sent)
         if chunk:
-            out.append(Scene(" ".join(chunk), s.visual, s.highlight))
+            out.append(Scene(" ".join(chunk), s.visual, s.highlight, s.speaker))
     return out
 
 
-def tidy_script(data: dict, fallback_category: str = "news") -> Script:
-    """Turns the AI's JSON into a clean Script, fixing the small mistakes models make."""
+def _speaker(raw: str, cast: list, previous: str) -> str:
+    """Matches the AI's speaker label ("Dave", "Big Dave", "dave") to a cast id; a stray label alternates."""
+    raw = str(raw or "").strip().lower()
+    for c in cast:
+        if raw and (raw == c.id or raw == c.name.lower() or raw in c.name.lower().split() or c.id in raw):
+            return c.id
+    others = [c.id for c in cast if c.id != previous]
+    return others[0] if others else cast[0].id
+
+
+def tidy_script(data: dict, fallback_category: str = "news", cast: list | None = None) -> Script:
+    """Turns the AI's JSON into a clean Script, fixing the small mistakes models make. With a cast, it's a
+    dialogue: each line keeps its speaker."""
     if not isinstance(data, dict):
         raise LLMError("The script wasn't a JSON object")
-    raw_scenes = data.get("scenes") or []
+    raw_scenes = data.get("lines") or data.get("scenes") or []
     scenes = []
+    previous = ""
     for s in raw_scenes:
         if isinstance(s, str):
             s = {"text": s}
@@ -210,10 +270,18 @@ def tidy_script(data: dict, fallback_category: str = "news") -> Script:
         hl = [hl] if isinstance(hl, str) else hl
         words = {w.strip(".,!?;:\"'").lower() for w in text.split()}
         hl = [str(h).strip() for h in hl if str(h).strip().lower() in words][:2]
-        scenes.append(Scene(text, visual, hl))
+        speaker = ""
+        if cast:
+            speaker = previous = _speaker(s.get("speaker") or s.get("character") or "", cast, previous)
+            for c in cast:  # "Big Dave: ..." or "Dave, ..." at the start of a line isn't meant to be spoken
+                for label in (c.name, c.name.split()[-1], c.id):
+                    if text.lower().startswith(label.lower() + ":"):
+                        text = text[len(label) + 1:].strip()
+        scenes.append(Scene(text, visual, hl, speaker))
     if len(scenes) < 3:
         raise LLMError("The script had fewer than 3 scenes")
-    scenes = split_long(scenes)
+    if not cast:
+        scenes = split_long(scenes)
     for i, s in enumerate(scenes):  # a missing visual borrows its neighbour's
         if not s.visual:
             s.visual = scenes[i - 1].visual if i else next((x.visual for x in scenes if x.visual), "city timelapse")
@@ -284,16 +352,25 @@ class Writer:
                                   str(item.get("angle", "")).strip() or shown[idx].title))
         return picks
 
-    def write(self, pick: Pick, research: Research) -> Script:
+    def write(self, pick: Pick, research: Research, cast: list | None = None) -> Script:
+        """A narrated script, or with a cast of two, a dialogue between them."""
         spelling = "British" if "UK" in self.audience or "Britain" in self.audience else "American"
-        n_scenes = max(6, round(self.seconds / 4.5))
-        prompt = SCRIPT_PROMPT.format(
-            topic=pick.trend.title, angle=pick.angle, notes=research.as_text(), spelling=spelling, lo=self.lo,
-            hi=self.hi, seconds=self.seconds, min_scenes=n_scenes - 3, max_scenes=n_scenes + 3,
-            categories=", ".join(CATEGORIES), moods=", ".join(MOODS))
-        system = SCRIPT_SYSTEM.format(audience=self.audience)
-        data = self.llm.json(system, prompt, temperature=0.85)
-        script = tidy_script(data, pick.category)
+        common = dict(topic=pick.trend.title, angle=pick.angle, notes=research.as_text(), spelling=spelling,
+                      lo=self.lo, hi=self.hi, seconds=self.seconds, categories=", ".join(CATEGORIES),
+                      moods=", ".join(MOODS))
+        if cast:
+            a, b = cast[0], cast[1]
+            n_lines = max(8, round(self.seconds / 4))
+            prompt = DUO_PROMPT.format(**common, a_id=a.id, a_name=a.name, a_bio=a.personality, b_id=b.id,
+                                       b_name=b.name, b_bio=b.personality, min_lines=n_lines - 3,
+                                       max_lines=n_lines + 3)
+            system = DUO_SYSTEM.format(audience=self.audience)
+        else:
+            n_scenes = max(6, round(self.seconds / 4.5))
+            prompt = SCRIPT_PROMPT.format(**common, min_scenes=n_scenes - 3, max_scenes=n_scenes + 3)
+            system = SCRIPT_SYSTEM.format(audience=self.audience)
+        data = self.llm.json(system, prompt, temperature=0.9 if cast else 0.85)
+        script = tidy_script(data, pick.category, cast)
         words = script.word_count()
         if not self.lo <= words <= self.hi:
             log.info("Script is %d words (wanted %d-%d); asking for a rewrite", words, self.lo, self.hi)
@@ -301,7 +378,7 @@ class Writer:
                 data = self.llm.json(system, REPAIR_PROMPT.format(words=words, lo=self.lo, hi=self.hi,
                                                                   script=json.dumps(data, ensure_ascii=False)),
                                      temperature=0.5)
-                fixed = tidy_script(data, pick.category)
+                fixed = tidy_script(data, pick.category, cast)
                 if abs(fixed.word_count() - self.target) < abs(words - self.target):
                     script = fixed
             except LLMError as e:

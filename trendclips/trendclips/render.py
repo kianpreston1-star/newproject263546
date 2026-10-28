@@ -32,6 +32,8 @@ class Shot:
     src_duration: float = 0.0
     scene_start: bool = False  # first shot of a scene: gets the punch-in and the whoosh
     zoom_out: bool = False
+    offset: float = -1.0  # where to start in the clip (seconds); -1 picks automatically
+    dim: float = 0.0  # darken a busy background so characters and captions stand out
 
     @property
     def duration(self) -> float:
@@ -92,15 +94,19 @@ def shot_command(shot: Shot, theme: Theme, out: Path, index: int) -> list[str]:
     if shot.kind == "video":
         src = shot.src_duration
         offset, slow = 0.0, 1.0
-        if src > shot.duration + 1.2:
+        if shot.offset >= 0:
+            offset = shot.offset
+        elif src > shot.duration + 1.2:
             offset = min(1.0, (src - shot.duration) / 3)  # skip fade-ins at the very start of stock clips
         elif 0 < src < shot.duration:
             slow = min(shot.duration / src, 1.5)  # slow a short clip down a little rather than repeat it
-        if 0 < src * slow < shot.duration:
+        if 0 < (src - offset) * slow < shot.duration:
             cmd += ["-stream_loop", "-1"]
         cmd += ["-ss", f"{offset:.2f}", "-i", str(shot.path)]
         vf = (f"setpts={slow:.3f}*(PTS-STARTPTS),fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:"
               f"flags=bicubic,crop={W}:{H},setsar=1,{zoom},{_grade(theme)}")
+        if shot.dim:
+            vf += f",eq=brightness=-{shot.dim}"
         cmd += ["-vf", vf]
     elif shot.kind == "image":
         # The photo sits on a blurred, darkened copy of itself, so any shape of photo fills the frame.
@@ -144,7 +150,7 @@ def render_shots(shots: list[Shot], theme: Theme, work: Path) -> list[Path]:
 
 def final_command(work: Path, segs: list[Path], duration: float, theme: Theme, music: Path | None,
                   music_volume: float, sfx: dict[str, Path], whooshes: list[float], out: Path,
-                  preset: str = "veryfast") -> list[str]:
+                  preset: str = "veryfast", overlays: list = (), pops: tuple = (0.04,)) -> list[str]:
     (work / "shots.txt").write_text("".join(f"file '{p.name}'\n" for p in segs))
     d = f"{duration:.3f}"
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", "shots.txt",
@@ -156,11 +162,18 @@ def final_command(work: Path, segs: list[Path], duration: float, theme: Theme, m
         music_idx, idx = idx, idx + 1
     cmd += ["-i", str(sfx["whoosh"]), "-i", str(sfx["pop"])]
     whoosh_idx, pop_idx = idx, idx + 1
+    idx += 2
     fmt = "aformat=sample_rates=48000:channel_layouts=stereo"
-    f = [
-        "[0:v]setpts=PTS-STARTPTS,format=yuv420p[base]",
+    f = ["[0:v]setpts=PTS-STARTPTS,format=yuv420p[base]"]
+    below = "base"
+    for n, ov in enumerate(overlays):  # characters, the photo card: anything laid over the footage
+        cmd += ov.args
+        f.append(f"[{idx}:v]{ov.prep}[ov{n}]")
+        f.append(f"[{below}][ov{n}]overlay=x='{ov.x}':y='{ov.y}':eval=frame:eof_action=pass,format=yuv420p[lay{n}]")
+        below, idx = f"lay{n}", idx + 1
+    f += [
         f"color=c={ffmpeg_color(theme.accent)}:s={W}x14:r={FPS}:d={d}[bar]",
-        f"[base][bar]overlay=x='-w+w*t/{d}':y=0:eval=frame:shortest=1[barred]",
+        f"[{below}][bar]overlay=x='-w+w*t/{d}':y=0:eval=frame:shortest=1[barred]",
         "[barred]ass=filename=captions.ass:fontsdir=fonts[vout]",
         f"[1:a]{fmt},apad,atrim=duration={d},asplit=2[voice][key]",
     ]
@@ -180,8 +193,14 @@ def final_command(work: Path, segs: list[Path], duration: float, theme: Theme, m
             ms = max(0, int(t * 1000))
             f.append(f"[w{i}]adelay={ms}|{ms}[wd{i}]")
             mix.append(f"[wd{i}]")
-    f.append(f"[{pop_idx}:a]{fmt},volume=0.45,adelay=40|40[pop]")
-    mix.append("[pop]")
+    if pops:  # the headline's pop, plus each character popping up in two-character videos
+        n = len(pops)
+        f.append(f"[{pop_idx}:a]{fmt},volume=0.4" + (f",asplit={n}" + "".join(f"[p{i}]" for i in range(n))
+                                                       if n > 1 else "[p0]"))
+        for i, t in enumerate(pops):
+            ms = max(0, int(t * 1000))
+            f.append(f"[p{i}]adelay={ms}|{ms}[pd{i}]")
+            mix.append(f"[pd{i}]")
     f.append("".join(mix) + f"amix=inputs={len(mix)}:duration=first:normalize=0,"
              "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
     kbps = video_kbps(duration)
@@ -193,8 +212,10 @@ def final_command(work: Path, segs: list[Path], duration: float, theme: Theme, m
 
 
 def finish(work: Path, segs: list[Path], duration: float, theme: Theme, music: Path | None, music_volume: float,
-           sfx: dict[str, Path], whooshes: list[float], out: Path, preset: str = "veryfast") -> Path:
-    cmd = final_command(work, segs, duration, theme, music, music_volume, sfx, whooshes, out, preset)
+           sfx: dict[str, Path], whooshes: list[float], out: Path, preset: str = "veryfast",
+           overlays: list = (), pops: tuple = (0.04,)) -> Path:
+    cmd = final_command(work, segs, duration, theme, music, music_volume, sfx, whooshes, out, preset, overlays,
+                        pops)
     p = subprocess.run(cmd, cwd=work, capture_output=True, text=True, timeout=3600)
     if p.returncode:
         err = (p.stderr or "").strip().splitlines()[-4:]
@@ -212,6 +233,10 @@ def ffmpeg_ok() -> tuple[bool, str]:
                if f" {n} " not in p.stdout]
     if missing:
         return False, (f"Your FFmpeg is missing these filters: {', '.join(missing)}. "
+                       "Install Ubuntu's: sudo apt install ffmpeg")
+    decoders = subprocess.run(["ffmpeg", "-hide_banner", "-decoders"], capture_output=True, text=True, timeout=30)
+    if "librsvg" not in decoders.stdout:
+        return False, ("Your FFmpeg can't draw the cartoon characters (no librsvg). "
                        "Install Ubuntu's: sudo apt install ffmpeg")
     version = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=30).stdout
     return True, " ".join(version.split()[:3]) or "FFmpeg is ready"

@@ -127,6 +127,8 @@ def approval_caption(video: dict) -> str:
         f"🗂 {video['category']} · ⏱ {meta.get('duration', 0):.0f}s · 🎞 {meta.get('stock_shots', 0)}/"
         f"{meta.get('shots', 0)} stock shots · ✍️ {meta.get('writer', '?')}",
     ]
+    if meta.get("cast"):
+        lines.append(f"🎭 {' & '.join(meta['cast'])}")
     if hosts:
         lines.append(f"📰 Facts from: {', '.join(hosts[:4])}")
     if script.get("hook_text"):

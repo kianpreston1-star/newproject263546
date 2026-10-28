@@ -44,6 +44,7 @@ class AIConfig:
 
 @dataclass
 class VideoConfig:
+    style: str = "duo"  # "duo": two cartoon characters talk it through; "explainer": one narrator over footage
     per_run: int = 2  # videos made by each daily run
     target_seconds: int = 65  # over 60 s qualifies for TikTok's Creator Rewards; still a YouTube Short
     voice: str = "af_heart"  # one recognisable narrator; "auto" picks a voice per topic instead
@@ -54,6 +55,14 @@ class VideoConfig:
     allow_share_alike_images: bool = False  # also use CC BY-SA photos from Wikipedia (see README)
     output_dir: str = "~/Videos/TrendClips"
     preset: str = "veryfast"  # x264 speed: slower presets make slightly smaller files but take longer
+
+
+@dataclass
+class DuoConfig:
+    characters: tuple = ("dave", "nibbles")  # the first asks and jokes, the second knows the facts
+    background: str = "satisfying"  # "satisfying": looping satisfying/action footage; "topic": footage per line
+    searches: tuple = ("satisfying kinetic sand", "parkour", "skateboard trick", "slime satisfying",
+                       "drone flight city", "race car track", "paint mixing", "domino falling", "snowboarding")
 
 
 @dataclass
@@ -86,6 +95,7 @@ class Config:
     trends: TrendsConfig = field(default_factory=TrendsConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
+    duo: DuoConfig = field(default_factory=DuoConfig)
     footage: FootageConfig = field(default_factory=FootageConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     youtube: YouTubeConfig = field(default_factory=YouTubeConfig)
@@ -101,6 +111,12 @@ class Config:
             raise ValueError("video.voice_speed must be between 0.7 and 1.5")
         if not 0 <= v.music_volume <= 1:
             raise ValueError("video.music_volume must be between 0 and 1")
+        if v.style not in ("duo", "explainer"):
+            raise ValueError('video.style must be "duo" or "explainer"')
+        if self.duo.background not in ("satisfying", "topic"):
+            raise ValueError('duo.background must be "satisfying" or "topic"')
+        if len(self.duo.characters) != 2:
+            raise ValueError("duo.characters must name exactly two characters")
         if self.youtube.privacy not in ("public", "unlisted", "private"):
             raise ValueError('youtube.privacy must be "public", "unlisted" or "private"')
         known = {"gemini", "openai", "ollama"}

@@ -60,6 +60,12 @@ def warm_clip(folder: Path) -> None:
     Ranker(folder)
 
 
+def draw_cast(paths) -> None:
+    from .characters import BUILT_IN, load_cast
+
+    load_cast(tuple(BUILT_IN), paths.home / "characters", paths.assets / "characters")
+
+
 def ensure_all(paths, say=print) -> list[str]:
     """Downloads whatever is missing. Returns problems (empty when everything is ready)."""
     problems = []
@@ -69,6 +75,7 @@ def ensure_all(paths, say=print) -> list[str]:
         ("caption timing model (about 150 MB)", lambda: warm_whisper(paths.whisper)),
         ("clip matching model (about 350 MB)", lambda: warm_clip(paths.clip_model)),
         ("sound effects", lambda: make_all(paths.sfx)),
+        ("cartoon characters", lambda: draw_cast(paths)),
     ]
     for label, step in steps:
         say(f"  • {label}…")

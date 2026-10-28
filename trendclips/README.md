@@ -2,6 +2,8 @@
 
 Trend Clips makes short vertical videos (YouTube Shorts, TikTok, Instagram Reels) about whatever is trending, using free AI that runs on your own laptop. It sends each video to your phone, you tap ✅ or ❌, and then you post it. It costs **£0** to run.
 
+By default, two cartoon characters talk the story through, in the style of the viral "two characters explain it" shorts. **Big Dave**, a loud, clueless bloke, asks the questions everyone's thinking. **Professor Nibbles**, a posh, smug genius hamster, explains the facts and despairs of him. They pop up when they speak, their mouths move with their voices, and big captions play over a satisfying background clip. Both characters are original, so you own them outright. You can also [make your own](#characters).
+
 ```
  Google Trends ─┐
  Wikipedia ─────┤                    ┌─ facts from news articles + Wikipedia
@@ -15,12 +17,23 @@ Trend Clips makes short vertical videos (YouTube Shorts, TikTok, Instagram Reels
 
 ## What each video gets
 
+**In two-character videos** (the default):
+
+- **Funny dialogue with real facts.** The AI writes banter around the story: absurd comparisons, misunderstandings, sarcastic comebacks and callbacks. Only the clever character states facts, and only facts from the research.
+- **Characters that talk.** The one speaking rises into view on their side of the screen. Their mouth opens and closes with the loudness of their voice, they blink now and then, and they bob gently.
+- **Distinct voices.** Dave's voice is deeper. Nibbles is posh, British and a little squeaky.
+- **Captions coloured by speaker:** yellow when Dave's talking, blue for Nibbles.
+- **A satisfying or action background** (kinetic sand, parkour, skateboarding, drone shots and more), changing every 6 seconds. You can use your own clips instead.
+- **A cartoon pop** each time a character pops up.
+
+**In every video:**
+
 - **A hook in the first second.** The opening line is written to stop the scroll, and a big headline pops up on screen for the first 2.5 seconds.
 - **Captions people actually read.** Big, bold words appear 1 to 3 at a time and pop in. The word being spoken lights up, and key words get a second colour.
-- **Fast cuts.** There's a new shot every 2 to 3 seconds. Each sentence gets its own stock clip, and a small image-matching AI (CLIP) checks the clip actually shows what's being said. Clips used in recent videos are avoided.
-- **Movement and polish.** Every shot has a smooth slow zoom, with a punch-in and a whoosh at each scene change. There's a colour grade and a progress bar at the top.
+- **Fast cuts** (single-narrator videos). There's a new shot every 2 to 3 seconds. Each sentence gets its own stock clip, and a small image-matching AI (CLIP) checks the clip actually shows what's being said. Clips used in recent videos are avoided.
+- **Movement and polish.** Every shot has a smooth slow zoom. In single-narrator videos, each scene change also gets a punch-in and a whoosh. There's a colour grade and a progress bar at the top.
 - **Sound.** The voice is a natural-sounding AI voice (Kokoro). Your background music dips automatically under the voice, and the volume is levelled to −14 LUFS, the level YouTube and TikTok expect.
-- **The subject on screen.** When Wikipedia has a photo of the subject under a free license, it opens the video, and the credit is added to the description for you.
+- **The subject on screen.** When Wikipedia has a photo of the subject under a free license, it opens the video (as a card above the characters in two-character videos), and the credit is added to the description for you.
 - **A style per topic.** Sport, tech, money, showbiz, science, gaming and news each get their own fonts and colours, so a "whatever's trending" channel still looks deliberate.
 - **Built to loop.** Scripts end on a line that flows back into the first one, so replays feel seamless, and replays count as views.
 - **About 65 seconds long.** That's over a minute, which TikTok's Creator Rewards requires, and still a YouTube Short.
@@ -46,7 +59,7 @@ On a 2-core laptop (like a Dell Inspiron with an i5-7200U), a 65-second video ta
 The installer shows a ✔ for each step. It:
 
 - sets up its own Python 3.12, leaving your system Python alone;
-- downloads the free AI models (about 900 MB, once);
+- downloads the free AI models (about 900 MB, once) and draws the cartoon characters;
 - asks for your free keys (next section). Press Enter to skip any; you can run `trendclips setup` later;
 - turns on the daily run (17:30 by default) and the Telegram bot;
 - adds a **Trend Clips** icon to your desktop and app menu. It makes a video right now and plays it when it's done.
@@ -85,6 +98,35 @@ ollama pull gemma3:4b
 - The **YouTube Audio Library** (YouTube Studio → Audio library): safe on YouTube. Check each track's license before using it elsewhere.
 
 Without music, the voice and sound effects still play.
+
+## Characters
+
+Two-character videos are the default (`style = "duo"` in `~/.trendclips/config.toml`). For a single narrator over matching footage instead, set `style = "explainer"`.
+
+**The built-in pair.** `dave` (Big Dave) and `nibbles` (Professor Nibbles) are drawn by Trend Clips itself as vector art. In `[duo] characters = ["dave", "nibbles"]`, the first character asks the questions and jokes, and the second knows the facts.
+
+**Your own characters.** Make a folder in `~/.trendclips/characters/` named after the character, e.g. `~/.trendclips/characters/gran/`. Put a `character.toml` in it:
+
+```toml
+name = "Gran"
+personality = "A sassy gran who has seen it all and is impressed by nothing. Brutally honest, secretly sweet."
+voice = "bf_emma"     # any Kokoro voice: af_heart, af_bella, am_michael, am_fenrir, am_puck, bf_emma, bm_george…
+pitch = 1.0           # above 1 is higher and more cartoonish, below 1 is deeper
+speed = 1.0
+color = "#FF77CC"     # her colour in the captions
+```
+
+Then add her picture:
+
+- `closed.png` for the mouth closed. This is the only one you need.
+- Optionally `open.png` (mouth open) and `blink.png` (eyes closed), the same drawing with just the mouth or eyes changed. With them, she talks and blinks; without them, she still pops up and bobs.
+- A plain background is removed automatically, which is what free AI image tools like Gemini or ChatGPT usually give. Check the tool's terms allow commercial use. Ask for *"an original cartoon character, front-facing, head and shoulders, plain white background"*.
+
+Finally, set `characters = ["dave", "gran"]` under `[duo]` and run `trendclips demo` to see the pair.
+
+**Why not famous cartoon characters?** Videos starring characters like Peter Griffin and Stewie use another company's copyrighted characters, and usually a cloned real actor's voice. They're the main target of copyright claims, demonetization and channel bans, and they can't join the YouTube Partner Program. Trend Clips sticks to characters you own, so the channel can actually earn.
+
+**Backgrounds.** By default the characters stand in front of satisfying or action stock clips: kinetic sand, parkour, skateboarding and more. Change the list in `[duo] searches`. To use your own clips instead, put them in `~/.trendclips/backgrounds/`. For example, Minecraft parkour you recorded yourself: Mojang allows monetized videos of your own Minecraft gameplay. Don't download other people's gameplay videos; that's their content. Set `background = "topic"` to show footage that matches each line instead.
 
 ## Every day
 
@@ -165,6 +207,7 @@ Settings live in `~/.trendclips/config.toml`. [`config.example.toml`](trendclips
 | `trendclips/llm.py` | Gemini's free tier, any OpenAI-compatible API, or Ollama, each falling back to the next. |
 | `trendclips/voice.py` | The Kokoro voice, plus Whisper word timings matched back to the script's own words. |
 | `trendclips/footage.py` | Pexels and Pixabay search. Picks a sharp file without wasting effort on 4K, and ranks clips with CLIP. |
+| `trendclips/characters.py`, `duo.py` | The cast (built-in vector characters and your own), and two-character videos: who's on screen when, mouths moving with the voice, the background loop and the photo card. |
 | `trendclips/captions.py`, `themes.py`, `sfx.py` | Animated ASS captions, the per-topic looks, and sound effects synthesized from scratch. |
 | `trendclips/render.py` | FFmpeg. Each shot is rendered separately with a smooth zoom (a broken clip only loses one shot). The final pass adds captions, the progress bar, music ducking and loudness levelling. The file is sized to fit Telegram's 50 MB limit. |
 | `trendclips/pipeline.py` | Runs the whole thing: one job at a time, cleaning up week-old downloads. |

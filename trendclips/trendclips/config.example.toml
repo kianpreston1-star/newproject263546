@@ -25,10 +25,12 @@ ollama_model = "gemma3:4b"      # the offline backup; run `ollama pull gemma3:4b
 audience = "the UK and the US"  # who the scripts are written for (British spelling when it mentions the UK)
 
 [video]
+style = "duo"                   # "duo": two cartoon characters talk it through (see [duo]);
+                                # "explainer": one narrator over footage that matches each line
 per_run = 2                     # videos made by each daily run (1 to 3 a day is the sweet spot)
 target_seconds = 65             # over 60 s qualifies for TikTok's Creator Rewards and is still a YouTube Short
-voice = "af_heart"              # "auto" picks a voice to suit each topic; others: af_bella, am_michael, am_fenrir,
-                                # am_puck, bf_emma (British), bm_george (British)
+voice = "af_heart"              # explainer narrator; "auto" picks a voice to suit each topic; others: af_bella,
+                                # am_michael, am_fenrir, am_puck, bf_emma (British), bm_george (British)
 voice_speed = 1.12
 music_volume = 0.16             # background music level; it also dips automatically while the voice speaks
 handle = ""                     # your @name, shown faintly in the corner
@@ -36,6 +38,14 @@ smart_footage = true            # an image-matching AI checks each stock clip fi
 allow_share_alike_images = false  # also use CC BY-SA photos from Wikipedia (see the README first)
 output_dir = "~/Videos/TrendClips"
 preset = "veryfast"             # x264 speed; "faster" or "medium" make slightly smaller files but take longer
+
+[duo]
+characters = ["dave", "nibbles"]  # the first asks and jokes, the second knows the facts. Built in: "dave" (Big
+                                  # Dave) and "nibbles" (Professor Nibbles); or your own (see the README)
+background = "satisfying"       # "satisfying": looping satisfying/action clips behind the characters (or your own
+                                # clips in ~/.trendclips/backgrounds); "topic": footage that matches each line
+searches = ["satisfying kinetic sand", "parkour", "skateboard trick", "slime satisfying", "drone flight city",
+            "race car track", "paint mixing", "domino falling", "snowboarding"]
 
 [footage]
 pexels_api_key = ""             # free: https://www.pexels.com/api/

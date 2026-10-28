@@ -202,6 +202,16 @@ def cmd_check(args) -> None:
 
     ok, msg = ffmpeg_ok()
     line(ok, msg)
+    if cfg.video.style == "duo":
+        from .pipeline import get_cast
+
+        try:
+            cast = get_cast(cfg, paths)
+            line(True, "Format: two characters, " + " & ".join(f"{c.name} ({c.voice})" for c in cast))
+        except (ValueError, RuntimeError) as e:
+            line(False, f"Characters: {e}")
+    else:
+        line(True, "Format: one narrator over footage (video.style = \"explainer\")")
     line(assets.fonts_ready(paths.fonts), "Caption fonts" + ("" if assets.fonts_ready(paths.fonts)
                                                              else " missing: run trendclips setup"))
     line(Voice(paths.kokoro).ready(), "Voice model" + ("" if Voice(paths.kokoro).ready() else
@@ -253,10 +263,11 @@ def cmd_demo(args) -> None:
     from .pipeline import make_demo
 
     cfg, store, paths = _objects()
-    say("Making a test video about octopuses (no AI writer needed)…")
+    who = " with " + " and ".join(cfg.duo.characters) if cfg.video.style == "duo" else ""
+    say(f"Making a test video about octopuses{who} (no AI writer needed)…")
     p = make_demo(cfg, store, paths, _progress)
     say(f"\n✔ Done in {p.seconds_taken / 60:.1f} minutes: {p.path}")
-    say(f"  {p.duration:.0f} seconds long, {p.stock_shots} of {p.shots} shots from stock footage, voice {p.voice}.")
+    say(f"  {p.duration:.0f} seconds long, {p.stock_shots} of {p.shots} shots from stock footage, voices: {p.voice}.")
     _open(p.path)
 
 

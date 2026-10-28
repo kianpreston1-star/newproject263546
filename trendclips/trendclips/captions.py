@@ -20,6 +20,7 @@ class Word:
     end: float
     scene: int = 0
     keyword: bool = False
+    color: str = ""  # the speaker's colour in two-character videos
 
 
 def _ts(t: float) -> str:
@@ -58,7 +59,8 @@ def _hook_lines(text: str, per_line: int = 14) -> str:
     return " ".join(words[:best]) + r"\N" + " ".join(words[best:])
 
 
-def build_ass(words: list[Word], theme: Theme, duration: float, hook: str = "", handle: str = "") -> str:
+def build_ass(words: list[Word], theme: Theme, duration: float, hook: str = "", handle: str = "",
+              caption_y: int = CAPTION_Y) -> str:
     up = (lambda s: s.upper()) if theme.uppercase else (lambda s: s)
     hook_size = max(70, round(theme.size * 0.8))
     lines = [
@@ -100,14 +102,15 @@ def build_ass(words: list[Word], theme: Theme, duration: float, hook: str = "", 
             for j, x in enumerate(group):
                 t = _clean(up(x.text))
                 if j == wi:
-                    parts.append(rf"{{\c{hl}\fscx112\fscy112}}{t}{{\r}}")
-                elif x.keyword:
-                    parts.append(rf"{{\c{accent}}}{t}{{\r}}")
+                    lit = ass_color(x.color) if x.color else hl
+                    parts.append(rf"{{\c{lit}\fscx112\fscy112}}{t}{{\r}}")
+                elif x.keyword:  # in two-character videos colour means "who's talking", so keep to theirs
+                    parts.append(rf"{{\c{ass_color(x.color) if x.color else accent}}}{t}{{\r}}")
                 else:
                     parts.append(t)
             pop = r"\fscx72\fscy72\t(0,90,\fscx106\fscy106)\t(90,170,\fscx100\fscy100)" if wi == 0 else ""
             lines.append(f"Dialogue: 1,{_ts(start)},{_ts(end)},Caption,,0,0,0,,"
-                         rf"{{\an5\pos({W // 2},{CAPTION_Y}){pop}}}" + " ".join(parts))
+                         rf"{{\an5\pos({W // 2},{caption_y}){pop}}}" + " ".join(parts))
     if hook:
         text = _clean(up(hook))
         anim = r"\fscx40\fscy40\t(0,160,\fscx108\fscy108)\t(160,260,\fscx100\fscy100)\fad(0,220)"

@@ -70,21 +70,24 @@ class Voice:
             self._kokoro = Kokoro(str(self.dir / "kokoro-v1.0.onnx"), str(self.dir / "voices-v1.0.bin"))
         return self._kokoro
 
-    def speak(self, text: str, voice: str, speed: float) -> np.ndarray:
-        audio, sr = self._model().create(text, voice=voice, speed=speed, lang=kokoro_lang(voice))
-        if sr != SR:
-            audio = resample(audio, sr, SR)
-        return trim_silence(np.asarray(audio, dtype=np.float32))
+    def speak(self, text: str, voice: str, speed: float, pitch: float = 1.0) -> np.ndarray:
+        """Speech at `speed`. A pitch other than 1 is made by reading slower (or faster) and then playing it back
+        faster (or slower): the pace comes out the same, the voice higher or deeper, like a cartoon."""
+        pitch = min(max(pitch, 0.7), 1.4)
+        audio, sr = self._model().create(text, voice=voice, speed=speed / pitch, lang=kokoro_lang(voice))
+        audio = resample(np.asarray(audio, dtype=np.float32), int(sr * pitch), SR)
+        return trim_silence(audio)
 
-    def track(self, texts: list[str], voice: str, speed: float) -> Track:
+    def track(self, lines: list[tuple[str, str, float, float]]) -> Track:
+        """Speaks (text, voice, speed, pitch) lines one after another with a short pause between them."""
         pieces, spans, t = [], [], 0.0
         gap = np.zeros(int(SCENE_GAP * SR), dtype=np.float32)
-        for i, text in enumerate(texts):
-            a = self.speak(text, voice, speed)
+        for i, (text, voice, speed, pitch) in enumerate(lines):
+            a = self.speak(text, voice, speed, pitch)
             spans.append((t, t + len(a) / SR))
             pieces.append(a)
             t += len(a) / SR
-            if i < len(texts) - 1:
+            if i < len(lines) - 1:
                 pieces.append(gap)
                 t += SCENE_GAP
         audio = np.concatenate(pieces) if pieces else np.zeros(SR, dtype=np.float32)

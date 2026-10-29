@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trendclips"
+version = "0.1.0"
+description = "Finds what's trending, makes short videos about it with free AI, and sends them to your phone to approve"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "numpy>=1.26",
+    "pillow>=10",
+    "kokoro-onnx>=0.4.9",
+    "faster-whisper>=1.1",
+    "fastembed>=0.5",
+    "google-auth>=2.30",
+    "google-auth-oauthlib>=1.2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+trendclips = "trendclips.cli:main"
+
+[tool.setuptools]
+packages = ["trendclips"]
+
+[tool.setuptools.package-data]
+trendclips = ["config.example.toml", "demo_script.json", "demo_duo.json", "icon.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

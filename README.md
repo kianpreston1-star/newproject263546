@@ -3,6 +3,8 @@
 > Also in this repository: [**tradebot**](tradebot/README.md), a trend-following trading bot for BNB Chain with backtesting and risk controls.
 >
 > And [**Date Night Picker**](datenight/README.md): a pink, heart-covered app for the laptop and phones that picks from over 1000 date ideas within an hour of Fleckney.
+>
+> And [**Trend Clips**](trendclips/README.md): makes short videos (Shorts, TikTok, Reels) about whatever is trending, with two original cartoon characters talking it through, using free AI on the laptop. It sends them to your phone to approve. £0 to run.
 
 A free AI chat app that runs in the cloud. It can **search the web, read web pages, run code, create images and save files**. You don't need API keys or a powerful computer. Your browser only displays the page, and the AI runs on [Puter](https://puter.com)'s servers.
 
